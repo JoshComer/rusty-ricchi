@@ -1,4 +1,4 @@
-pub mod hand_scoring {
+use super::game_structs::*;
 
 // three great dragons
     fn yakuman_daisangen(player : &Player) -> u8
@@ -129,15 +129,15 @@ pub mod hand_scoring {
         }
 
         return 
-             ( player.hand.into_iter().filter(|&t| t.value == SuitVal::One).count() >= 3
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Two).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Three).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Four).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Five).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Six).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Seven).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Eight).count() >= 1
-            && player.hand.into_iter().filter(|&t| t.value == SuitVal::Nine).count() >= 3
+             ( player.hand.iter().filter(|&t| t.value == SuitVal::One).count() >= 3
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Two).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Three).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Four).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Five).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Six).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Seven).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Eight).count() >= 1
+            && player.hand.iter().filter(|&t| t.value == SuitVal::Nine).count() >= 3
             ) as u8;
     }
 
@@ -181,5 +181,3 @@ const YAKUMAN_FUNCS : [ &dyn Fn(&Player) -> u8 ; 8] = [
     &yakuman_chinroutou,
     &yakuman_chuuren_poutou,
  ];
-
-}
