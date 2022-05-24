@@ -110,7 +110,7 @@ pub struct Set {
     tiles : [Tile ; 4],
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub enum WinningMethod {
     NotWonYet,
     Ron,
@@ -121,10 +121,12 @@ const INVALID_TILE : Tile = Tile { suit : Suit::Man, value : SuitVal::East, red 
 pub const PLAYER_HAND_SIZE : usize = 14;
 const STARTING_POINTS : i32 = 25000;
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Player {
     pub hand : Vec<Tile>, 
     pub revealed_sets : Vec<Set>,
+
+    tiles_needed_to_win : Vec<Tile>,
 
     last_picked_tile : Tile,
     seat_wind : SuitVal,
@@ -137,7 +139,7 @@ pub struct Player {
     double_riichi : bool,
     iipatsu : bool,
 
-    ron_or_tsumo : WinningMethod,
+    ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
 }
 
 impl Default for Player {
@@ -146,7 +148,9 @@ impl Default for Player {
             hand : vec![INVALID_TILE; PLAYER_HAND_SIZE],
             last_picked_tile : INVALID_TILE,
             revealed_sets : Vec::new(),
-            
+
+            tiles_needed_to_win : Vec::new(),
+
             seat_wind : SuitVal::East,
             points : STARTING_POINTS,
 
@@ -156,15 +160,26 @@ impl Default for Player {
             double_riichi : false,
             iipatsu : false,
 
-            ron_or_tsumo : WinningMethod::NotWonYet,
+            ron_or_tsumo : (WinningMethod::NotWonYet, 42),
         };
     }
 }
 
 impl Player {
-    fn choose_action(&mut self)
+    fn rotate_wind(&mut self)
     {
+        self.seat_wind = match self.seat_wind{
+            SuitVal::East => SuitVal::South,
+            SuitVal::South => SuitVal::West,
+            SuitVal::West => SuitVal::North,
+            SuitVal::North => SuitVal::East,
+            _ => panic!("lkdsfj")
+        };
+    }
 
+    fn choose_discard(&mut self) -> Tile
+    {
+        INVALID_TILE
     }
 
     fn has_winning_hand(&mut self)
@@ -500,7 +515,7 @@ const NUM_PLAYERS    : usize = 4;
 #[allow(dead_code)]
 pub struct Game {
     tiles : [Tile; NUM_GAME_TILES],
-    next_tile : usize,
+    next_tile : i32,
 
     players : [Player; NUM_PLAYERS],
 
@@ -712,8 +727,16 @@ pub fn create_game() -> Game {
 }
 
 
+fn round_up_to_100(points : i32) -> i32
+{
+    let last_two_digits = points % 100;
+
+    return (points + (100 - last_two_digits)) as i32;
+}
+
+
 impl Game {
-    fn score_points(&mut self, winning_player : Option<&Player>) -> ()
+    fn score_points_and_advance_dealer(&mut self, winning_player : Option<&mut Player>) -> ()
     {
         const EXHAUSTIVE_DRAW_POINTS : i32 = 3000;
         match winning_player
@@ -721,19 +744,82 @@ impl Game {
             None => {
                 let num_tenpai_players = self.players.iter().filter(|player| player.tenpai).count();
 
+                // no one or everyone is in tenpai
+                if num_tenpai_players == 0 || num_tenpai_players == 4
+                {  return;  }
+
                 for player in &mut self.players {
                     if player.tenpai
                     {
-                        player.points += EXHAUSTIVE_DRAW_POINTS / (num_tenpai_players as i32);
+                        player.points += round_up_to_100(EXHAUSTIVE_DRAW_POINTS / (num_tenpai_players as i32));
                     }
                     else
                     {
-                        player.points -= EXHAUSTIVE_DRAW_POINTS / (num_tenpai_players as i32);
+                        player.points -= round_up_to_100(EXHAUSTIVE_DRAW_POINTS / ((NUM_PLAYERS - num_tenpai_players) as i32));
                     }
+                }
+
+                // rotate seats if dealer wasn't in tenpai and someone else was
+                if ! self.players.iter().find(|player| player.seat_wind == SuitVal::East).unwrap().tenpai
+                {
+                    for player in &mut self.players { player.rotate_wind(); }
                 }
             }
             Some(winning_player) => {
 
+                let basic_points = winning_player.score_hand_basic_points();
+
+                let other_players = self.players.iter().filter(|player| player.seat_wind != winning_player.seat_wind);
+
+                match winning_player.ron_or_tsumo {
+                    (WinningMethod::Ron, victim_index) =>  // "victim" is the player who got ron called on them
+                    if winning_player.seat_wind == SuitVal::East
+                    {
+                        self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
+                        winning_player.points += round_up_to_100((basic_points * 6) as i32);
+                    }
+                    else
+                    {
+                        self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
+                        winning_player.points += round_up_to_100((basic_points * 4) as i32);
+                    },
+                    (WinningMethod::Tsumo, _) => 
+                    if winning_player.seat_wind == SuitVal::East
+                    {
+                        for player in &mut self.players{
+                            if player != winning_player
+                            {
+                                player.points -= round_up_to_100((basic_points * 2) as i32);
+                                winning_player.points += round_up_to_100((basic_points * 2) as i32);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for player in &mut self.players {
+                            if player.seat_wind == SuitVal::East
+                            {
+                                player.points -= round_up_to_100((basic_points * 2) as i32);
+                                winning_player.points += round_up_to_100((basic_points * 2) as i32);
+                            }
+                            else if player.seat_wind != winning_player.seat_wind
+                            {
+                                player.points  -= round_up_to_100(basic_points as i32);
+                                winning_player.points += round_up_to_100(basic_points as i32);
+                            }
+                        }
+                    },
+                    (_,_) => panic!("Player won, but did not have ron or tsumo set"),
+                }
+
+                // rotate seat positions if needed
+                if winning_player.seat_wind != SuitVal::East
+                {
+                    for player in &mut self.players
+                    {
+                        player.rotate_wind();
+                    }
+                }
             }
         }
     }
@@ -744,6 +830,8 @@ impl Game {
         for i in 0..NUM_GAME_TILES-2 {
             let random_idx : usize = rand::thread_rng().gen_range(i..NUM_GAME_TILES);
             
+            println!("{}", self.next_tile);
+
             // exchange tiles from i and random index
             let mut temp : Tile = self.tiles[i];
             self.tiles[i] = self.tiles[random_idx];
@@ -786,26 +874,26 @@ impl Game {
         loop
         {
             // draw the next tile or exhaustive draw
-            if self.next_tile == 0
+            if self.next_tile < 0
             {  
-                // TODO: Exhaustive draw 
+                self.score_points_and_advance_dealer(None);
                 break;
             }
 
-            let next_tile : Tile = self.tiles[self.next_tile];
+            let next_tile : Tile = self.tiles[self.next_tile as usize];
+            self.next_tile -= 1;
 
             current_player.hand.push(next_tile);
-            // sort the hand to make calculating whether win condition has been met eay
-            // TODO: Keep track of tiles needed to win. That way we just immediately win if winning tile is drawn
+            let discarded : Tile = current_player.choose_discard();
             current_player.sort_hand();
 
             if current_player.has_complete_hand()
             {
-                let mut score = current_player.score_hand();
+                self.score_points_and_advance_dealer(Some(current_player));
+                break;
             }
-
-            current_player.choose_action();
-
+            
+           // TODO: Allow other players to chii, pon, and ron from here 
 
 
         }
@@ -883,7 +971,7 @@ fn print_tiles(tiles : &[Tile], num_to_print : usize) -> ()
 pub fn print_game_state(game : &Game) -> ()
 {
     println!("Tiles\n--------------------------------");
-    let mut i : usize = game.next_tile;
+    let mut i : usize = game.next_tile as usize;
     while i < NUM_GAME_TILES - 1 {
         print!("{}:", i);
     
