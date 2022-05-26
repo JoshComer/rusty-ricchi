@@ -1,9 +1,10 @@
 //pub mod game_structs {
 use strum::IntoEnumIterator;
 use rand::Rng;
-use std::fmt;
+use std::{fmt};
 use int_enum::IntEnum;
 use num::pow;
+
 
 
 #[allow(dead_code)]
@@ -129,7 +130,7 @@ pub struct Player {
     tiles_needed_to_win : Vec<Tile>,
 
     last_picked_tile : Tile,
-    seat_wind : SuitVal,
+    pub seat_wind : SuitVal,
     
     points : i32,
 
@@ -166,6 +167,11 @@ impl Default for Player {
 }
 
 impl Player {
+    fn has_winning_hand(&self) -> bool
+    {
+        return false;
+    }
+
     fn rotate_wind(&mut self)
     {
         self.seat_wind = match self.seat_wind{
@@ -180,11 +186,6 @@ impl Player {
     fn choose_discard(&mut self) -> Tile
     {
         INVALID_TILE
-    }
-
-    fn has_winning_hand(&mut self)
-    {
-
     }
 
     fn score_hand(&self) -> i32
@@ -210,7 +211,7 @@ impl Player {
         let mut idx : usize = 0;
         let mut num_triplets : usize = 0;
 
-        while idx < PLAYER_HAND_SIZE
+        while idx < PLAYER_HAND_SIZE - 2
         {
             let curr : Tile = self.hand[idx];
             let next: Tile = self.hand[idx + 1];
@@ -247,14 +248,17 @@ impl Player {
         let mut idx : usize = 0;
         let mut num_pairs = 0;
 
-        while idx < PLAYER_HAND_SIZE
+        while idx < PLAYER_HAND_SIZE - 1
         {
             if self.hand[idx] == self.hand[idx + 1]
             {
                 num_pairs += 1;
+                idx += 2;
             }
-
-            idx += 2;
+            else
+            {
+                idx += 1;
+            }
         }
 
         return num_pairs;
@@ -289,9 +293,16 @@ impl Player {
     }
 
     // excludes kazoe (yakuman from enough han)
-    fn hand_yakuman_in_basic_points(&self) -> usize
+    fn hand_yakuman_in_basic_points(&self, game : &Game) -> usize
     {
-        0
+        let mut basic_points : usize = 0;
+
+        for yakuman in YAKUMAN_FUNCS
+        { // 8000 basic points per yakuman. Some functions can return double yakuman (a value of 2)
+            basic_points += 8000 * yakuman(self, game);
+        }
+
+        return basic_points;
     }
 
     fn hand_yaku_in_han(&self) -> usize
@@ -318,10 +329,10 @@ impl Player {
     }
 
     // way more complex than it should be imo. Way to go Japanese!
-    fn score_hand_basic_points(&self) -> usize
+    fn score_hand_basic_points(&self, game : &Game) -> usize
     {
         // double yakuman, come on!
-        let yakuman_pts = self.hand_yakuman_in_basic_points();
+        let yakuman_pts = self.hand_yakuman_in_basic_points(game);
         if yakuman_pts > 0
         {
             return yakuman_pts;
@@ -510,12 +521,14 @@ impl Player {
 
 
 const NUM_GAME_TILES : usize = 136;
-const NUM_PLAYERS    : usize = 4;
+pub const NUM_PLAYERS    : usize = 4;
 
 #[allow(dead_code)]
 pub struct Game {
     tiles : [Tile; NUM_GAME_TILES],
-    next_tile : i32,
+    pub next_tile : usize,
+
+    pub num_called_tiles : usize,
 
     players : [Player; NUM_PLAYERS],
 
@@ -527,208 +540,216 @@ pub struct Game {
 //         Game { tiles: 0, players: 0 }
 //     }
 // }
+impl Default for Game
+{
+    fn default() -> Self {
+        // let mut new_game = Game { 
+            // tiles : [ 
+                    //    Tile { suit : Suit::Man, value : SuitVal::One, red : false};
+                    //    NUM_GAME_TILES
+                    // ],
+            // players : [1,2,3,4]
+        // };
 
-pub fn create_game() -> Game {
-    // let mut new_game = Game { 
-        // tiles : [ 
-                //    Tile { suit : Suit::Man, value : SuitVal::One, red : false};
-                //    NUM_GAME_TILES
-                // ],
-        // players : [1,2,3,4]
-    // };
+        let mut new_game = Game {
+            round_wind : SuitVal::East,
 
-    let mut new_game = Game {
-        round_wind : SuitVal::East,
+            num_called_tiles : 0,
+
+            tiles : [
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
         
-        tiles : [
-            Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : true},
 
-            Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
- 
-            Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Five, red : true},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
 
-            Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
+        
+                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Five, red : true},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
- 
-            Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Five, red : true},
+                Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
 
-            Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
+        
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : true},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
- 
-            Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Five, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Five, red : true},
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
 
-            Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
 
-            Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
-            Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
 
-            Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
 
-            Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
 
-            Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
 
-            Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
 
-            Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+            ],
 
-            Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+            next_tile : 0,
 
-            Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
-            Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
-        ],
-
-        next_tile : 0,
-
-        players : [
-            Player::default(),        
-            Player::default().set_seat_wind(SuitVal::South).to_owned(),
-            Player::default().set_seat_wind(SuitVal::West).to_owned(),
-            Player::default().set_seat_wind(SuitVal::North).to_owned(),
-        ],
-    };
+            players : [
+                Player::default(),        
+                Player::default().set_seat_wind(SuitVal::South).to_owned(),
+                Player::default().set_seat_wind(SuitVal::West).to_owned(),
+                Player::default().set_seat_wind(SuitVal::North).to_owned(),
+            ],
+        };
 
 
-    return new_game;
+        return new_game;
 }
 
 
+}
+
 fn round_up_to_100(points : i32) -> i32
-{
+{   // no rounding needed
+    if points % 100 == 0
+    {   return points;   }
+   
     let last_two_digits = points % 100;
 
     return (points + (100 - last_two_digits)) as i32;
@@ -736,10 +757,24 @@ fn round_up_to_100(points : i32) -> i32
 
 
 impl Game {
-    fn score_points_and_advance_dealer(&mut self, winning_player : Option<&mut Player>) -> ()
+    fn draw_next_tile(&mut self) -> Option<Tile>
+    {
+        if self.next_tile >= NUM_GAME_TILES
+        {
+            return None;
+        }
+        else
+        {
+            self.next_tile += 1;
+            
+            return Some(self.tiles[self.next_tile - 1]);
+        }
+    }
+
+    fn score_points_and_advance_dealer(&mut self, winning_player_idx : Option<usize>) -> ()
     {
         const EXHAUSTIVE_DRAW_POINTS : i32 = 3000;
-        match winning_player
+        match winning_player_idx
         {
             None => {
                 let num_tenpai_players = self.players.iter().filter(|player| player.tenpai).count();
@@ -765,34 +800,37 @@ impl Game {
                     for player in &mut self.players { player.rotate_wind(); }
                 }
             }
-            Some(winning_player) => {
+            Some(winning_player_idx) => {
 
-                let basic_points = winning_player.score_hand_basic_points();
+                let basic_points = self.players[winning_player_idx].score_hand_basic_points(self);
 
-                let other_players = self.players.iter().filter(|player| player.seat_wind != winning_player.seat_wind);
+                let winners_seat_wind : SuitVal = self.players[winning_player_idx].seat_wind;
 
-                match winning_player.ron_or_tsumo {
+                let other_players = self.players.iter().filter(|player| player.seat_wind != self.players[winning_player_idx].seat_wind);
+
+                match self.players[winning_player_idx].ron_or_tsumo {
                     (WinningMethod::Ron, victim_index) =>  // "victim" is the player who got ron called on them
-                    if winning_player.seat_wind == SuitVal::East
+                    if self.players[winning_player_idx].seat_wind == SuitVal::East
                     {
                         self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
-                        winning_player.points += round_up_to_100((basic_points * 6) as i32);
+                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 6) as i32);
                     }
                     else
                     {
                         self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
-                        winning_player.points += round_up_to_100((basic_points * 4) as i32);
+                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
                     },
                     (WinningMethod::Tsumo, _) => 
-                    if winning_player.seat_wind == SuitVal::East
+                    if self.players[winning_player_idx].seat_wind == SuitVal::East
                     {
                         for player in &mut self.players{
-                            if player != winning_player
+                            if player.seat_wind != winners_seat_wind
                             {
                                 player.points -= round_up_to_100((basic_points * 2) as i32);
-                                winning_player.points += round_up_to_100((basic_points * 2) as i32);
                             }
                         }
+                        
+                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
                     }
                     else
                     {
@@ -800,20 +838,24 @@ impl Game {
                             if player.seat_wind == SuitVal::East
                             {
                                 player.points -= round_up_to_100((basic_points * 2) as i32);
-                                winning_player.points += round_up_to_100((basic_points * 2) as i32);
                             }
-                            else if player.seat_wind != winning_player.seat_wind
+                            else if player.seat_wind != winners_seat_wind
                             {
                                 player.points  -= round_up_to_100(basic_points as i32);
-                                winning_player.points += round_up_to_100(basic_points as i32);
+                            
                             }
+                            
                         }
+                        
+                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
+                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
+                        
                     },
                     (_,_) => panic!("Player won, but did not have ron or tsumo set"),
                 }
 
                 // rotate seat positions if needed
-                if winning_player.seat_wind != SuitVal::East
+                if self.players[winning_player_idx].seat_wind != SuitVal::East
                 {
                     for player in &mut self.players
                     {
@@ -827,11 +869,11 @@ impl Game {
     // fisher yates shuffle of the game tiles
     fn shuffle(&mut self) -> ()
     {
+        self.next_tile = 0;
+
         for i in 0..NUM_GAME_TILES-2 {
             let random_idx : usize = rand::thread_rng().gen_range(i..NUM_GAME_TILES);
             
-            println!("{}", self.next_tile);
-
             // exchange tiles from i and random index
             let mut temp : Tile = self.tiles[i];
             self.tiles[i] = self.tiles[random_idx];
@@ -860,42 +902,44 @@ impl Game {
         self.divy_tiles_to_players();
        
         // Dealer is the east wind player
-        let dealer = self.players.iter().cycle().find(|player| player.seat_wind == SuitVal::East);
-        //.cycle().find(|player| player.seat_wind == SuitVal::East);
+        let original_dealer = self.players.iter().position(|player| player.seat_wind == SuitVal::East);
 
-        if dealer.is_none()
+        if original_dealer.is_none()
         {
             panic!("There was no player with East Wind who could be the dealer");
         }
 
-        let dealer = unsafe { dealer.unwrap_unchecked() };
+        let original_dealer_idx = unsafe { original_dealer.unwrap_unchecked() };
 
-        let mut current_player = &mut dealer.clone();
+        let mut curr_player_idx = original_dealer_idx;
         loop
         {
-            // draw the next tile or exhaustive draw
-            if self.next_tile < 0
+
+            //draw the next tile or exhaustive draw
+            let next_tile = self.draw_next_tile();
+            if next_tile.is_none()
             {  
                 self.score_points_and_advance_dealer(None);
                 break;
             }
 
-            let next_tile : Tile = self.tiles[self.next_tile as usize];
-            self.next_tile -= 1;
+            let next_tile = unsafe {next_tile.unwrap_unchecked()};
 
-            current_player.hand.push(next_tile);
-            let discarded : Tile = current_player.choose_discard();
-            current_player.sort_hand();
+            let curr_player = &mut self.players[curr_player_idx];
 
-            if current_player.has_complete_hand()
+            curr_player.hand.push(next_tile);
+            let discarded : Tile = curr_player.choose_discard();
+            curr_player.sort_hand();
+
+            if curr_player.has_winning_hand()
             {
-                self.score_points_and_advance_dealer(Some(current_player));
+                self.score_points_and_advance_dealer(Some(curr_player_idx));
                 break;
             }
             
-           // TODO: Allow other players to chii, pon, and ron from here 
+          //TODO: Allow other players to chii, pon, and ron from here 
 
-
+            curr_player_idx = (curr_player_idx + 1) % NUM_PLAYERS;
         }
     }
 
@@ -970,9 +1014,11 @@ fn print_tiles(tiles : &[Tile], num_to_print : usize) -> ()
 
 pub fn print_game_state(game : &Game) -> ()
 {
-    println!("Tiles\n--------------------------------");
+    println!("Tiles ({} left to draw)\n--------------------------------", NUM_GAME_TILES - game.next_tile);
     let mut i : usize = game.next_tile as usize;
-    while i < NUM_GAME_TILES - 1 {
+
+    // print a row with 4 tiles on it
+    while i < NUM_GAME_TILES - 4 {
         print!("{}:", i);
     
         for j in 0..4 {
@@ -982,14 +1028,326 @@ pub fn print_game_state(game : &Game) -> ()
     
         print!("\n");
     }
-    println!("{}:{}", NUM_GAME_TILES-1, game.tiles[NUM_GAME_TILES-1]);
 
+    // print the last row with possibly less than 4 items
+    if i < NUM_GAME_TILES
+    {
+        print!("{}:", i);
+
+        while i < NUM_GAME_TILES {
+            print!("{},", game.tiles[i]);
+            i += 1;
+        }
+    }
 
     println!("\nPlayers\n--------------------------------");
     for i in 0..NUM_PLAYERS {
-        print!("{} Player {}:", game.players[i as usize].seat_wind, i);
+        print!("{} Player {}:{{{}pts}}", game.players[i as usize].seat_wind, i, game.players[i].points);
         print_tiles(&game.players[i as usize].hand, PLAYER_HAND_SIZE);
     }
 
 }
 //}
+
+
+
+
+
+
+impl Player
+{
+// three great dragons
+    fn yakuman_daisangen(&self, game : &Game) -> usize
+    {
+        return
+          ( self.hand_contains_num_of(Suit::Honor, SuitVal::White) == 3
+        &&  self.hand_contains_num_of(Suit::Honor, SuitVal::Red) == 3
+        &&  self.hand_contains_num_of(Suit::Honor, SuitVal::Green) == 3 )
+        as usize;
+    }
+
+    // thirteen orphans
+    fn yakuman_kokushi_musou(&self, game : &Game) -> usize
+    { // TODO: Double yakuman if the wait was on the pair
+        if  self.hand_contains(Suit::Man, SuitVal::One)
+        &&  self.hand_contains(Suit::Man, SuitVal::Nine)
+        &&  self.hand_contains(Suit::Pin, SuitVal::One)
+        &&  self.hand_contains(Suit::Pin, SuitVal::Nine)
+        &&  self.hand_contains(Suit::Sou, SuitVal::One)
+        &&  self.hand_contains(Suit::Sou, SuitVal::Nine)
+        &&  self.hand_contains(Suit::Honor, SuitVal::North)
+        &&  self.hand_contains(Suit::Honor, SuitVal::East)
+        &&  self.hand_contains(Suit::Honor, SuitVal::South)
+        &&  self.hand_contains(Suit::Honor, SuitVal::West)
+        &&  self.hand_contains(Suit::Honor, SuitVal::Red)
+        &&  self.hand_contains(Suit::Honor, SuitVal::White)
+        &&  self.hand_contains(Suit::Honor, SuitVal::Green)
+        &&  self.hand_num_pairs() == 1 
+        {
+            // double yakuman if there was a 13 sided wait for the last tile
+            if self.hand_contains_num_of(self.last_picked_tile.suit, self.last_picked_tile.value) == 2
+            {   2   }
+            else
+            {   1   }
+        }
+        else
+        {
+            0
+        }
+    }
+
+    // four concealed triplets and a pair
+    fn yakuman_suuankou(&self, game : &Game) -> usize
+    { // TODO: Double yakuman if tsumo on the pair
+        return (self.revealed_sets.is_empty() && self.hand_num_triplets() == 4) as usize;
+    }
+
+    // three little winds and four great winds
+    fn yakuman_suushiihou(&self, game : &Game) -> usize
+    {
+        let num_winds =
+            [   self.hand_contains_num_of(Suit::Honor, SuitVal::East),
+                self.hand_contains_num_of(Suit::Honor, SuitVal::South),
+                self.hand_contains_num_of(Suit::Honor, SuitVal::West),
+                self.hand_contains_num_of(Suit::Honor, SuitVal::North)  ];
+
+        let num_wind_sets  = num_winds.into_iter().filter(|&t| t >= 3 ).count();
+        let num_wind_pairs = num_winds.into_iter().filter(|&t| t == 2 ).count();
+
+        // Four great winds - Double yakuman
+        if num_wind_sets == 4
+        {
+            return 2;
+        } 
+        // three little winds
+        else if num_wind_sets == 3 && num_wind_pairs == 1
+        {
+            return 1;
+        }
+        else
+        {
+            return 0;
+        }
+    }
+
+    // all honor tiles
+    fn yakuman_tsuuiisou(&self, game : &Game) -> usize
+    {
+        // since honor tiles are always sorted to the right, we can just check
+        // if the leftmost tile is an honor tile to see if they're all honors
+        // returns 1 for 1 yakuman if the condition is met, otherwise 0 for no yakuman
+        return (self.hand[0].suit == Suit::Honor) as usize;
+    }
+
+    // all green tiles
+    fn yakuman_ryuuiisou(&self, game : &Game) -> usize
+    {
+        for i in 0..PLAYER_HAND_SIZE
+        {
+            let cur : Tile = self.hand[i];
+            
+            // suit check
+            if cur.suit != Suit::Sou && cur.suit != Suit::Honor
+            {
+                return 0;
+            }
+
+            // value check
+            if cur.value != SuitVal::Two && cur.value != SuitVal::Three 
+                && cur.value != SuitVal::Four && cur.value != SuitVal::Six
+                && cur.value != SuitVal::Eight && cur.value != SuitVal::Green
+            {
+                return 0;
+            }
+        }
+
+        return 1;
+    }
+
+    // all terminal tiles
+    fn yakuman_chinroutou(&self, game : &Game) -> usize
+    {
+       for i in 0..PLAYER_HAND_SIZE
+       {
+           let cur : Tile = self.hand[i];
+
+           if cur.value != SuitVal::One && cur.value != SuitVal::Nine
+           {
+               return 0;
+           }
+       } 
+
+       return 1;
+    }
+
+    // TODO: The opened door? Forget the english translation. Full straight with extra terminals
+    fn yakuman_chuuren_poutou(&self, game : &Game) -> usize
+    { // TODO: Double yakuman if the last tile chosen was the extra tile
+
+        // check for all tiles being the same suit
+        for i in 1..PLAYER_HAND_SIZE
+        {
+            if self.hand[i].suit != self.hand[0].suit
+            {
+                return 0;
+            }
+        }
+
+        return 
+             ( self.hand.iter().filter(|&t| t.value == SuitVal::One).count() >= 3
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Two).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Three).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Four).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Five).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Six).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Seven).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Eight).count() >= 1
+            && self.hand.iter().filter(|&t| t.value == SuitVal::Nine).count() >= 3
+            ) as usize;
+    }
+
+
+    fn yakuman_suukantsu(&self, game : &Game) -> usize
+    {
+        // checking for the 4 quads
+        if self.revealed_sets.iter().filter(
+            |&set| set.set_type == SetType::Quad).count() != 4
+        {
+            return 0;
+        }
+
+        // checking for the pair
+        // since the 4 quads have to be revealed, the pair could be the only tiles in the hand, or also revealed
+        if self.hand_num_pairs() == 1
+        || self.revealed_sets.iter().filter(
+            |&set| set.set_type == SetType::Pair).count() == 1
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // the below two yakuman are for the dealer getting a completed hand, and the dealer
+    // drawing a complete hand with his first tile
+    // Dealer has completed hand on draw
+    fn yakuman_tenhou(&self, game : &Game) -> usize
+    {
+        if self.seat_wind == SuitVal::East
+        && self.revealed_sets.len() == 0
+        && game.next_tile == 0
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+    // dealer completes hand with first draw
+    fn yakuman_chiihou(&self, game : &Game) -> usize
+    {
+        // TODO: If any tile call made by any player, does it interrupt this? Or only if this player has called? For now, assuming any player
+        // also assuming that calling a closed kan eliminates possibility of this hand
+        if game.next_tile < NUM_PLAYERS
+        && game.next_tile != 0
+        && game.num_called_tiles == 0
+        && self.seat_wind == SuitVal::East
+        && self.revealed_sets.len() == 0
+        {
+            return 1;
+        }
+
+        return 0;
+    }
+
+
+}
+
+const YAKUMAN_FUNCS : [ &dyn Fn(&Player, &Game) -> usize ; 11] = [
+    &Player::yakuman_daisangen,    
+    &Player::yakuman_kokushi_musou,    
+    &Player::yakuman_suuankou,
+    &Player::yakuman_suushiihou,
+    &Player::yakuman_tsuuiisou,    
+    &Player::yakuman_ryuuiisou,    
+    &Player::yakuman_chinroutou,
+    &Player::yakuman_chuuren_poutou,
+    &Player::yakuman_suukantsu,
+    &Player::yakuman_tenhou,
+    &Player::yakuman_chiihou,
+ ];
+
+
+
+
+
+
+
+
+
+
+
+
+#[test]
+fn test_scoring()
+{
+    let mut game : Game = Game::default();
+
+    game.players[0].ron_or_tsumo = (WinningMethod::Ron, 1);
+    game.score_points_and_advance_dealer(Some(0));
+
+
+
+
+}
+
+// tests both yakuman hand detection, and some scoring
+#[test]
+fn test_yakuman()
+{
+    let mut game = Game::default();
+
+    println!("HEre");
+    game.players[0].hand = vec!(
+        Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::One, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::One, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false }, // the duplicate for pair. Set as the last tile drawn, so it should be double yakuman
+    );
+
+    game.players[0].sort_hand();
+
+    game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
+    game.players[0].last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
+    game.next_tile = 1;
+
+    // testing for 3 yakuman. Dealer drawing first, and 13 orphans double yakuman
+    for yakuman in YAKUMAN_FUNCS.into_iter().filter(
+        |func| (func as fn (&Player, &Game) -> usize) != &Player::yakuman_kokushi_musou as usize && func != &Player::yakuman_chiihou)
+    {
+        assert_eq!(yakuman(&game.players[0], &game), 0);
+    }
+    assert_eq!(game.players[0].yakuman_kokushi_musou(&game), 2);
+    assert_eq!(game.players[0].yakuman_chiihou(&game), 1);
+
+    game.score_points_and_advance_dealer(Some(0));
+
+    // Damn, I wish I could have a hand like this sometime
+    assert_eq!(game.players[0].points, 169000);
+    assert_eq!(game.players.iter().filter(|player| player.points == -23000).count(), 3);
+
+
+
+    let game = Game::default();
+
+}

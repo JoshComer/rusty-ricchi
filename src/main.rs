@@ -25,7 +25,7 @@ use hand_scoring::*;
 
 
 fn main() {
-    let mut game = create_game();
+    let mut game = Game::default();
     game.play_game(2);
 
 
