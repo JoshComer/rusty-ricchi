@@ -107,7 +107,6 @@ pub enum SetType {
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Set {
     pub set_type : SetType,
-    num_tiles : u8,
     tiles : [Tile ; 4],
 }
 
@@ -143,6 +142,60 @@ pub struct Player {
     ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
 }
 
+struct PlayerTileIter <'a>{
+    player : &'a Player,
+    pos : usize,
+}
+
+impl <'a> PlayerTileIter<'a> {
+    fn construct(player : &'a Player) -> Self
+    {
+        return PlayerTileIter {
+            player : player,
+            pos : 0
+        }
+    }
+}
+
+impl <'a> Iterator for PlayerTileIter<'a> {
+    type Item = Tile;
+
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        let total_player_tiles_len = self.player.hand.len() + self.player.revealed_sets_tiles_len();
+        
+        if self.pos < self.player.hand.len()
+        {
+            self.pos += 1;
+            return Some(self.player.hand[self.pos - 1]);
+        }
+        else if self.pos < total_player_tiles_len as usize
+        {
+            self.pos += 1;
+            
+            let mut revealed_pos : i32 = (self.pos - self.player.hand.len()) as i32;
+
+            for i in 0..self.player.revealed_sets.len(){
+                revealed_pos -= match self.player.revealed_sets[i].set_type{
+                    SetType::Pair => 2,
+                    SetType::Sequence | SetType::Triplet => 3,
+                    SetType::Quad => 4,
+                };
+                
+                if revealed_pos < 0
+                {
+                    return Some(self.player.revealed_sets[i].tiles[(-revealed_pos) as usize]);
+                }
+            }
+             
+            return None;
+        }
+        else {
+            return None;
+        }
+    }
+}
+
 impl Default for Player {
     fn default() -> Self {
         return Player { 
@@ -167,6 +220,23 @@ impl Default for Player {
 }
 
 impl Player {
+    fn revealed_sets_tiles_len(&self) -> usize 
+    {
+        let mut len = 0;
+
+        for i in 0..self.revealed_sets.len()
+        {
+            match self.revealed_sets[i].set_type
+            {
+                SetType::Pair => len += 2,
+                SetType::Sequence | SetType::Triplet => len += 3,
+                SetType::Quad => len += 4
+            }
+        }
+
+        return len;
+    }
+
     fn has_winning_hand(&self) -> bool
     {
         return false;
@@ -206,12 +276,12 @@ impl Player {
     }
 
     // greedy. If there's 4 of a tile, there's only 1 triplet reported
-    pub fn hand_num_triplets(&self) -> u8
+    pub fn hand_num_triplets(&self) -> usize
     {
         let mut idx : usize = 0;
         let mut num_triplets : usize = 0;
 
-        while idx < PLAYER_HAND_SIZE - 2
+        while idx < self.hand.len() - 2
         {
             let curr : Tile = self.hand[idx];
             let next: Tile = self.hand[idx + 1];
@@ -239,7 +309,7 @@ impl Player {
             }
         }
 
-        return 0;
+        return num_triplets;
     }
 
     // greedy. If there's 3 of a tile, there's only 1 pair reported
@@ -264,11 +334,11 @@ impl Player {
         return num_pairs;
     }
 
-    pub fn hand_contains_num_of(&self, suit : Suit, value : SuitVal) -> usize
+    pub fn tiles_num_of(&self, suit : Suit, value : SuitVal) -> usize
     {
         let mut num_occurrences = 0;
 
-        for i in 0..PLAYER_HAND_SIZE
+        for i in 0..self.hand.len()
         {
             if self.hand[i].suit == suit && self.hand[i].value == value
             {
@@ -276,17 +346,81 @@ impl Player {
             }
         }
 
+        for i in 0..self.revealed_sets.len()
+        {
+            let mut set_len;
+
+            match self.revealed_sets[i].set_type {
+                SetType::Pair => {
+                    set_len = 2;
+                }
+                SetType::Quad => {
+                    set_len = 4;
+                }
+                SetType::Triplet | SetType::Sequence => {
+                    set_len = 3;
+                }
+            }
+
+
+            for j in 0..set_len
+            {
+                if self.revealed_sets[i].tiles[j].suit == suit && self.revealed_sets[i].tiles[j].value == value
+                {
+                    num_occurrences += 1;
+                }
+            }
+        }
+
         return num_occurrences;
     }
 
-    pub fn hand_contains(&self, suit : Suit, value : SuitVal) -> bool
+    pub fn tiles_contain(&self, suit : Suit, value : SuitVal) -> bool
     {
-        for i in 0..PLAYER_HAND_SIZE
+        let mut iter = PlayerTileIter::construct(self);
+        let mut tile = iter.next();
+
+        while tile != None
+        {
+            if tile.unwrap().suit == suit && tile.unwrap().value == value
+            {   return true;    }
+
+            tile = iter.next();
+        }
+
+        return false;
+
+        for i in 0..self.hand.len()
         {
             if self.hand[i].suit == suit && self.hand[i].value == value
             {
                 return true;
             }
+        }
+
+        for i in 0..self.revealed_sets.len()
+        {
+            let mut set_len;
+
+            match self.revealed_sets[i].set_type {
+                SetType::Pair => {
+                    set_len = 2;
+                }
+                SetType::Quad => {
+                    set_len = 4;
+                }
+                SetType::Triplet | SetType::Sequence => {
+                    set_len = 3;
+                }
+            }
+
+            for j in 0..set_len {
+                if self.revealed_sets[i].tiles[j].suit == suit && self.revealed_sets[i].tiles[j].value == value
+                {
+                    return true;
+                }
+            }
+
         }
 
         return false;
@@ -528,6 +662,9 @@ pub struct Game {
     tiles : [Tile; NUM_GAME_TILES],
     pub next_tile : usize,
 
+    dora_idx : usize,
+    ura_dora_idx : usize,
+
     pub num_called_tiles : usize,
 
     players : [Player; NUM_PLAYERS],
@@ -555,6 +692,9 @@ impl Default for Game
             round_wind : SuitVal::East,
 
             num_called_tiles : 0,
+
+            dora_idx : NUM_GAME_TILES - 14,
+            ura_dora_idx : NUM_GAME_TILES - 7,
 
             tiles : [
                 Tile { suit : Suit::Man, value : SuitVal::One, red : false},
@@ -759,7 +899,7 @@ fn round_up_to_100(points : i32) -> i32
 impl Game {
     fn draw_next_tile(&mut self) -> Option<Tile>
     {
-        if self.next_tile >= NUM_GAME_TILES
+        if self.next_tile >= self.dora_idx
         {
             return None;
         }
@@ -1060,32 +1200,32 @@ impl Player
     fn yakuman_daisangen(&self, game : &Game) -> usize
     {
         return
-          ( self.hand_contains_num_of(Suit::Honor, SuitVal::White) == 3
-        &&  self.hand_contains_num_of(Suit::Honor, SuitVal::Red) == 3
-        &&  self.hand_contains_num_of(Suit::Honor, SuitVal::Green) == 3 )
+          ( self.tiles_num_of(Suit::Honor, SuitVal::White) == 3
+        &&  self.tiles_num_of(Suit::Honor, SuitVal::Red) == 3
+        &&  self.tiles_num_of(Suit::Honor, SuitVal::Green) == 3 )
         as usize;
     }
 
     // thirteen orphans
     fn yakuman_kokushi_musou(&self, game : &Game) -> usize
     { // TODO: Double yakuman if the wait was on the pair
-        if  self.hand_contains(Suit::Man, SuitVal::One)
-        &&  self.hand_contains(Suit::Man, SuitVal::Nine)
-        &&  self.hand_contains(Suit::Pin, SuitVal::One)
-        &&  self.hand_contains(Suit::Pin, SuitVal::Nine)
-        &&  self.hand_contains(Suit::Sou, SuitVal::One)
-        &&  self.hand_contains(Suit::Sou, SuitVal::Nine)
-        &&  self.hand_contains(Suit::Honor, SuitVal::North)
-        &&  self.hand_contains(Suit::Honor, SuitVal::East)
-        &&  self.hand_contains(Suit::Honor, SuitVal::South)
-        &&  self.hand_contains(Suit::Honor, SuitVal::West)
-        &&  self.hand_contains(Suit::Honor, SuitVal::Red)
-        &&  self.hand_contains(Suit::Honor, SuitVal::White)
-        &&  self.hand_contains(Suit::Honor, SuitVal::Green)
+        if  self.tiles_contain(Suit::Man, SuitVal::One)
+        &&  self.tiles_contain(Suit::Man, SuitVal::Nine)
+        &&  self.tiles_contain(Suit::Pin, SuitVal::One)
+        &&  self.tiles_contain(Suit::Pin, SuitVal::Nine)
+        &&  self.tiles_contain(Suit::Sou, SuitVal::One)
+        &&  self.tiles_contain(Suit::Sou, SuitVal::Nine)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::North)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::East)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::South)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::West)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::Red)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::White)
+        &&  self.tiles_contain(Suit::Honor, SuitVal::Green)
         &&  self.hand_num_pairs() == 1 
         {
             // double yakuman if there was a 13 sided wait for the last tile
-            if self.hand_contains_num_of(self.last_picked_tile.suit, self.last_picked_tile.value) == 2
+            if self.tiles_num_of(self.last_picked_tile.suit, self.last_picked_tile.value) == 2
             {   2   }
             else
             {   1   }
@@ -1098,18 +1238,27 @@ impl Player
 
     // four concealed triplets and a pair
     fn yakuman_suuankou(&self, game : &Game) -> usize
-    { // TODO: Double yakuman if tsumo on the pair
-        return (self.revealed_sets.is_empty() && self.hand_num_triplets() == 4) as usize;
+    {
+        if self.revealed_sets.len() <= 1 && self.hand_num_triplets() == 4
+        {
+            // double yakuman if wait is on the pair
+            if self.tiles_num_of(self.last_picked_tile.suit, self.last_picked_tile.value) == 2
+            {   return 2;   }
+            else
+            {   return 1;   }
+        }
+
+        return 0;
     }
 
     // three little winds and four great winds
     fn yakuman_suushiihou(&self, game : &Game) -> usize
     {
         let num_winds =
-            [   self.hand_contains_num_of(Suit::Honor, SuitVal::East),
-                self.hand_contains_num_of(Suit::Honor, SuitVal::South),
-                self.hand_contains_num_of(Suit::Honor, SuitVal::West),
-                self.hand_contains_num_of(Suit::Honor, SuitVal::North)  ];
+            [   self.tiles_num_of(Suit::Honor, SuitVal::East),
+                self.tiles_num_of(Suit::Honor, SuitVal::South),
+                self.tiles_num_of(Suit::Honor, SuitVal::West),
+                self.tiles_num_of(Suit::Honor, SuitVal::North)  ];
 
         let num_wind_sets  = num_winds.into_iter().filter(|&t| t >= 3 ).count();
         let num_wind_pairs = num_winds.into_iter().filter(|&t| t == 2 ).count();
@@ -1142,7 +1291,7 @@ impl Player
     // all green tiles
     fn yakuman_ryuuiisou(&self, game : &Game) -> usize
     {
-        for i in 0..PLAYER_HAND_SIZE
+        for i in 0..self.hand.len()
         {
             let cur : Tile = self.hand[i];
             
@@ -1167,7 +1316,7 @@ impl Player
     // all terminal tiles
     fn yakuman_chinroutou(&self, game : &Game) -> usize
     {
-       for i in 0..PLAYER_HAND_SIZE
+       for i in 0..self.hand.len()
        {
            let cur : Tile = self.hand[i];
 
@@ -1303,11 +1452,10 @@ fn test_scoring()
 
 // tests both yakuman hand detection, and some scoring
 #[test]
-fn test_yakuman()
+fn test_kokushi_musou()
 {
     let mut game = Game::default();
 
-    println!("HEre");
     game.players[0].hand = vec!(
         Tile { suit : Suit::Honor, value : SuitVal::North, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
@@ -1331,23 +1479,120 @@ fn test_yakuman()
     game.players[0].last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
     game.next_tile = 1;
 
-    // testing for 3 yakuman. Dealer drawing first, and 13 orphans double yakuman
-    for yakuman in YAKUMAN_FUNCS.into_iter().filter(
-        |func| (func as fn (&Player, &Game) -> usize) != &Player::yakuman_kokushi_musou as usize && func != &Player::yakuman_chiihou)
-    {
-        assert_eq!(yakuman(&game.players[0], &game), 0);
-    }
     assert_eq!(game.players[0].yakuman_kokushi_musou(&game), 2);
     assert_eq!(game.players[0].yakuman_chiihou(&game), 1);
+    assert_eq!(game.players[0].yakuman_daisangen(&game), 0);
 
     game.score_points_and_advance_dealer(Some(0));
 
     // Damn, I wish I could have a hand like this sometime
     assert_eq!(game.players[0].points, 169000);
     assert_eq!(game.players.iter().filter(|player| player.points == -23000).count(), 3);
+}
+
+#[test]
+fn test_daisangen()
+{
+    let mut game = Game::default();
+
+    game.players[0].hand = vec!(
+        Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+    );
+
+    game.players[0].revealed_sets = vec!(
+        Set {
+            set_type : SetType::Triplet,
+            tiles : [
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
+                INVALID_TILE
+            ]
+        }
+    );
+
+    game.players[0].sort_hand();
+
+    game.players[0].ron_or_tsumo = (WinningMethod::Ron, 2);
+    game.players[0].last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::Green, red : false };
+    game.next_tile = 46;
+
+    assert_eq!(game.players[0].yakuman_kokushi_musou(&game), 0);
+    assert_eq!(game.players[0].yakuman_chiihou(&game), 0);
+    assert_eq!(game.players[0].yakuman_daisangen(&game), 1);
+
+    game.score_points_and_advance_dealer(Some(0));
+
+    // Damn, I wish I could have a hand like this sometime
+    assert_eq!(game.players[0].points, 73000);
+    assert_eq!(game.players[1].points, 25000);
+    assert_eq!(game.players[2].points, -23000);
+    assert_eq!(game.players[3].points, 25000);
+}
+
+#[test]
+fn test_suuankou()
+{
+    let mut game = Game::default();
+
+    game.players[0].hand = vec!(
+        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+    );
+
+    game.players[0].revealed_sets = vec!(
+        Set {
+            set_type : SetType::Pair,
+            tiles : [
+                Tile {  suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile {  suit : Suit::Man, value : SuitVal::Seven, red : false},
+                INVALID_TILE,
+                INVALID_TILE
+            ]
+        }
+    );
+
+    game.players[0].sort_hand();
+
+    game.players[0].last_picked_tile = Tile { suit : Suit::Man, value : SuitVal::Seven, red : false };
+    game.players[0].ron_or_tsumo = (WinningMethod::Ron , 3);
+    game.next_tile = 45;
 
 
+    assert_eq!(game.players[0].yakuman_suuankou(&game), 2);
+    
+    game.score_points_and_advance_dealer(Some(0));
 
+    assert_eq!(game.players[0].points, 25000 + (16000 * 6));
+    assert_eq!(game.players[1].points, 25000);
+    assert_eq!(game.players[2].points, 25000);
+    assert_eq!(game.players[3].points, 25000 - (16000 * 6));
+}
+
+#[test]
+fn test_suushiihou()
+{
     let game = Game::default();
 
+//    game.players[3].yakuman_suushiihou(&game)
 }
