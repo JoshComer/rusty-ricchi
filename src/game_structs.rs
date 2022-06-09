@@ -1,7 +1,7 @@
 //pub mod game_structs {
 use strum::IntoEnumIterator;
 use rand::Rng;
-use std::{fmt};
+use std::{fmt, slice::Windows, usize::MAX};
 use int_enum::IntEnum;
 use num::pow;
 
@@ -100,7 +100,8 @@ pub enum SetType {
     Pair,
     Sequence,
     Triplet,
-    Quad
+    ClosedKan,
+    OpenKan,
 }
 
 // A completed tile set
@@ -108,7 +109,32 @@ pub enum SetType {
 pub struct Set {
     pub set_type : SetType,
     tiles : [Tile ; 4],
+    ron : bool,
 }
+
+impl Set {
+    fn has_honor_or_terminal(&self) -> bool
+    {
+        for tile in self.tiles {
+            if tile.suit == Suit::Honor || tile.value == SuitVal::One || tile.value == SuitVal::Nine
+            {
+                return true;
+            }
+        }
+    
+        return false;
+    }
+}
+
+#[derive(Clone, Eq, PartialEq)]
+pub enum WaitType {
+    Ryanmen, // double sided sequence
+    Penchan, // One sided wait of sequence (sequence has terminal)
+    Shanpon, // either of two pairs to form a triplet
+    Kanchan, // middle of sequence
+    Tanki, // pair wait
+}
+
 
 #[derive(Clone, Eq, PartialEq)]
 pub enum WinningMethod {
@@ -126,6 +152,8 @@ pub struct Player {
     pub hand : Vec<Tile>, 
     pub revealed_sets : Vec<Set>,
 
+    pub discard : Vec<Tile>,
+
     tiles_needed_to_win : Vec<Tile>,
 
     last_picked_tile : Tile,
@@ -139,8 +167,18 @@ pub struct Player {
     double_riichi : bool,
     iipatsu : bool,
 
+    winning_wait : Option<WaitType>,
     ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
 }
+
+struct EndlessPlayerIter <'a>{
+    players : &'a mut [Player ; NUM_PLAYERS],
+}
+
+impl <'a> EndlessPlayerIter{
+    fn new(players : &'a [Player ; 4])
+}
+
 
 struct PlayerTileIter <'a>{
     player : &'a Player,
@@ -169,22 +207,27 @@ impl <'a> Iterator for PlayerTileIter<'a> {
             self.pos += 1;
             return Some(self.player.hand[self.pos - 1]);
         }
-        else if self.pos < total_player_tiles_len as usize
+        else if self.pos < total_player_tiles_len
         {
             self.pos += 1;
             
-            let mut revealed_pos : i32 = (self.pos - self.player.hand.len()) as i32;
+            let mut revealed_pos : i32 = (self.pos - 1 - self.player.hand.len()) as i32;
 
             for i in 0..self.player.revealed_sets.len(){
-                revealed_pos -= match self.player.revealed_sets[i].set_type{
+                let set_len = match self.player.revealed_sets[i].set_type{
                     SetType::Pair => 2,
                     SetType::Sequence | SetType::Triplet => 3,
-                    SetType::Quad => 4,
+                    SetType::ClosedKan | SetType::OpenKan => 4,
                 };
-                
+
+                revealed_pos -= set_len;
                 if revealed_pos < 0
                 {
-                    return Some(self.player.revealed_sets[i].tiles[(-revealed_pos) as usize]);
+                    return Some(self.player.revealed_sets[i].tiles[(revealed_pos + set_len) as usize]);
+                }
+                else if revealed_pos == 0
+                {
+                    return Some(self.player.revealed_sets[i].tiles[0]);
                 }
             }
              
@@ -203,6 +246,8 @@ impl Default for Player {
             last_picked_tile : INVALID_TILE,
             revealed_sets : Vec::new(),
 
+            discard : Vec::with_capacity(70),
+
             tiles_needed_to_win : Vec::new(),
 
             seat_wind : SuitVal::East,
@@ -214,6 +259,7 @@ impl Default for Player {
             double_riichi : false,
             iipatsu : false,
 
+            winning_wait : None,
             ron_or_tsumo : (WinningMethod::NotWonYet, 42),
         };
     }
@@ -230,7 +276,7 @@ impl Player {
             {
                 SetType::Pair => len += 2,
                 SetType::Sequence | SetType::Triplet => len += 3,
-                SetType::Quad => len += 4
+                SetType::OpenKan | SetType::ClosedKan => len += 4
             }
         }
 
@@ -253,10 +299,10 @@ impl Player {
         };
     }
 
-    fn choose_discard(&mut self) -> Tile
-    {
-        INVALID_TILE
-    }
+    // commented out due to fighting the borrow checker. Had to run through Game with an index into the player
+//    fn choose_discard(&mut self, game : &mut Game) -> Tile
+ //   {
+  // }
 
     fn score_hand(&self) -> i32
     {
@@ -338,42 +384,21 @@ impl Player {
     {
         let mut num_occurrences = 0;
 
-        for i in 0..self.hand.len()
+        let mut iter = PlayerTileIter::construct(self);
+        let mut tile = iter.next();
+
+        while tile != None
         {
-            if self.hand[i].suit == suit && self.hand[i].value == value
+            if tile.unwrap().suit == suit && tile.unwrap().value == value
             {
                 num_occurrences += 1;
             }
-        }
 
-        for i in 0..self.revealed_sets.len()
-        {
-            let mut set_len;
-
-            match self.revealed_sets[i].set_type {
-                SetType::Pair => {
-                    set_len = 2;
-                }
-                SetType::Quad => {
-                    set_len = 4;
-                }
-                SetType::Triplet | SetType::Sequence => {
-                    set_len = 3;
-                }
-            }
-
-
-            for j in 0..set_len
-            {
-                if self.revealed_sets[i].tiles[j].suit == suit && self.revealed_sets[i].tiles[j].value == value
-                {
-                    num_occurrences += 1;
-                }
-            }
+            tile = iter.next();
         }
 
         return num_occurrences;
-    }
+   }
 
     pub fn tiles_contain(&self, suit : Suit, value : SuitVal) -> bool
     {
@@ -389,42 +414,7 @@ impl Player {
         }
 
         return false;
-
-        for i in 0..self.hand.len()
-        {
-            if self.hand[i].suit == suit && self.hand[i].value == value
-            {
-                return true;
-            }
-        }
-
-        for i in 0..self.revealed_sets.len()
-        {
-            let mut set_len;
-
-            match self.revealed_sets[i].set_type {
-                SetType::Pair => {
-                    set_len = 2;
-                }
-                SetType::Quad => {
-                    set_len = 4;
-                }
-                SetType::Triplet | SetType::Sequence => {
-                    set_len = 3;
-                }
-            }
-
-            for j in 0..set_len {
-                if self.revealed_sets[i].tiles[j].suit == suit && self.revealed_sets[i].tiles[j].value == value
-                {
-                    return true;
-                }
-            }
-
-        }
-
-        return false;
-    }
+   }
 
     // excludes kazoe (yakuman from enough han)
     fn hand_yakuman_in_basic_points(&self, game : &Game) -> usize
@@ -449,17 +439,140 @@ impl Player {
         0
     }
 
-    fn hand_fu(&self) -> usize
+    fn hand_fu(&self, game : &Game, round_up : bool) -> usize
     {
         // chiitoitsu (seven pairs) is always 25 fu
-        if self.hand_num_pairs() == 7
+        if self.yaku_chiitoitsu(game) != 0
         {
             return 25;
         }
 
+        let mut fu = 20;
+        
+        // add fu for revealed sets (which include closed kans)
+        for set in &self.revealed_sets {
+            let mut added_fu =  match set.set_type {
+                                        SetType::ClosedKan => 16,        
+                                        SetType::OpenKan => 8,
+                                        SetType::Triplet => 2,
+                                        _ => 0,
+                                    };
+
+            if set.has_honor_or_terminal()
+            {
+                added_fu *= 2;
+            }
+
+            fu += added_fu;
+        }
+
+        // add fu for closed triplets
+        let mut i = 0;
+        while i < self.hand.len() - 2
+        {
+            let curr : Tile = self.hand[i];
+            let next : Tile = self.hand[i + 1];
+            let nextnext : Tile = self.hand[i + 2];
+
+            if curr.suit == next.suit && curr.value == next.value
+            {
+                if next.suit == nextnext.suit && next.value == nextnext.value
+                {
+                    let mut added_fu = 4;
+
+                    if next.suit == Suit::Honor || next.value == SuitVal::One || next.value == SuitVal::Nine
+                    {
+                        added_fu *= 2;
+                    }
+
+                    fu += added_fu;
+                    i += 3;
+                    continue;
+                }
+                else
+                {
+                    i += 2;
+                    continue;
+                }
+            }
+            else
+            {
+                i += 1;
+                continue;
+            }
+        }
+
+        // add fu for a pair of honor tiles which would count as yaku
+        let winning_pair = self.get_one_pair();
+        if winning_pair == None
+        {          
+            // In riichi mahjong there is ALWAYS a winning pair. Return 0 fu since the hand isn't a winning hand
+            return 0;
+        }
+        else if winning_pair.unwrap().tiles[0].suit == Suit::Honor
+        {
+            fu +=   match winning_pair.unwrap().tiles[0].value {
+                        SuitVal::Red => 2,
+                        SuitVal::White => 2,
+                        SuitVal::Green => 2,
+                        _ => 0,
+                    };
+
+            if winning_pair.unwrap().tiles[0].value == game.round_wind
+            {
+                fu += 2;
+            }
+
+            if winning_pair.unwrap().tiles[0].value == self.seat_wind
+            {
+                fu += 2;
+            }
+        }
+
+        // add fu for winning wait
+        fu +=   match self.winning_wait {
+                    Some(WaitType::Ryanmen) => 0,
+                    Some(WaitType::Kanchan) => 2,
+                    Some(WaitType::Penchan) => 2,
+                    Some(WaitType::Tanki)   => 2,
+                    Some(WaitType::Shanpon) => 0,
+                    None => panic!("Attempted to score fu for non winning player"),
+                };
+
+        // add fu for ron or tsumo
+        fu +=   match self.ron_or_tsumo {
+                    (WinningMethod::NotWonYet, _) => 0,
+                    (WinningMethod::Ron, _) => { 
+                        if self.hand_is_closed()
+                         { 10 }
+                        else
+                         { 0 }
+                    },
+                    (WinningMethod::Tsumo, _) => {
+                        if self.yaku_pinfu(game) != 0
+                         { 0 }
+                        else
+                         { 2 }
+                    },
+                };
 
 
-        0
+        // for pinfu
+        if fu == 20
+        {
+            fu = 30;
+        }
+
+        // round up to 10
+        if round_up{
+            let last_dig = fu % 10;
+            if last_dig != 0
+            {
+                fu += 10 - last_dig;
+            }
+        }
+
+        return fu;
     }
 
     // way more complex than it should be imo. Way to go Japanese!
@@ -498,7 +611,7 @@ impl Player {
         }
         else
         {
-            let mut basic_points = self.hand_fu() * pow(2, 2 + han); 
+            let mut basic_points = self.hand_fu(game, true) * pow(2, 2 + han); 
 
             // if han and fu reach over 2000 points, it's considered a 2000 point mangan
             if basic_points > 2000
@@ -896,7 +1009,94 @@ fn round_up_to_100(points : i32) -> i32
 }
 
 
+fn mahjong_tiles_strs(tile_vec : & Vec<Tile>)-> (String, String, String)
+{
+    // returns three strings with mahjong tiles to be printed. The strings do not end in newlines
+
+    let tile_top = "┌──┐";
+    let tile_mid_left = '│';
+    let tile_mid_right = '│';
+    let tile_bot = "└──┘";
+    
+    let mut top_str = String::with_capacity(tile_top.len() * tile_vec.len());
+    let mut mid_str = String::with_capacity(tile_top.len() * tile_vec.len());
+    let mut bot_str = String::with_capacity(tile_top.len() * tile_vec.len());
+
+    for tile in tile_vec{
+        top_str.push_str(tile_top);
+    }
+
+    for tile in tile_vec {
+//        let chars = match tile {
+//            INVALID_TILE => "  ",
+//        }
+        let chars = "  ";
+        mid_str.push_str(&format!("{}{}{}", tile_mid_left, chars, tile_mid_right));
+    }
+
+    for tile in tile_vec{
+        bot_str.push_str(tile_bot);
+    }
+
+    return (top_str, mid_str, bot_str);
+}
+
 impl Game {
+    fn player_choose_discard(&self, player_idx : usize) -> Tile
+    {
+        self.output_game_state(player_idx);
+        INVALID_TILE
+    }
+
+    fn output_game_state(&self, player_idx : usize)
+    {
+        // outputs one "line" of tiles with 3 lines of stdout
+
+        let (top_str, mid_str, bot_str) = mahjong_tiles_strs(&vec![INVALID_TILE ; 14]);
+//·
+        // print top player
+        println!("{: ^100}", top_str);
+        println!("{: ^100}", mid_str);
+        println!("{: ^100}", bot_str);
+
+        let tile_top = "┌─┐";
+        let tile_mid = "│ │";
+        let tile_bot = "└─┘";
+
+        // print side players
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
+        println!("{: >20}{}{: <20}", tile_mid, " ".repeat(60), tile_mid);
+
+//        for tile in &self.players[player_idx].hand {
+//            println!("{}", tile);
+//        }
+
+        // print current player
+        let (top_str, mid_str, bot_str) = mahjong_tiles_strs(&self.players[player_idx].hand);
+        println!("{} {} {} {}", self.players[player_idx].hand.len(), player_idx, 6, 9);
+
+        // print current player top tiles with the side player bottom tiles
+        println!("{: >20}{: ^60}{: <20}", tile_bot, top_str, tile_bot);
+
+        println!("{: ^100}", mid_str);
+        println!("{: ^100}", bot_str);
+
+
+    }
+
     fn draw_next_tile(&mut self) -> Option<Tile>
     {
         if self.next_tile >= self.dora_idx
@@ -1040,46 +1240,49 @@ impl Game {
     {
         self.shuffle();
         self.divy_tiles_to_players();
-       
+        
         // Dealer is the east wind player
-        let original_dealer = self.players.iter().position(|player| player.seat_wind == SuitVal::East);
-
-        if original_dealer.is_none()
-        {
-            panic!("There was no player with East Wind who could be the dealer");
-        }
-
-        let original_dealer_idx = unsafe { original_dealer.unwrap_unchecked() };
+        let original_dealer_idx = self.players.iter()
+            .position(|player| player.seat_wind == SuitVal::East)
+            .expect("There was no player with East Wind who could be the dealer");
 
         let mut curr_player_idx = original_dealer_idx;
+        let mut players_iter = self.players.iter_mut();
         loop
         {
 
-            //draw the next tile or exhaustive draw
-            let next_tile = self.draw_next_tile();
-            if next_tile.is_none()
-            {  
-                self.score_points_and_advance_dealer(None);
-                break;
-            }
+                //draw the next tile or exhaustive draw
+                let next_tile = self.draw_next_tile();
+                if next_tile.is_none()
+                {  
+                    self.score_points_and_advance_dealer(None);
+                    break;
+                }
 
-            let next_tile = unsafe {next_tile.unwrap_unchecked()};
+                let next_tile = unsafe {next_tile.unwrap_unchecked()};
 
-            let curr_player = &mut self.players[curr_player_idx];
+                // commented out due to fighting the borrow checker
+                //  let curr_player = &mut self.players[curr_player_idx];
 
-            curr_player.hand.push(next_tile);
-            let discarded : Tile = curr_player.choose_discard();
-            curr_player.sort_hand();
+                self.players[curr_player_idx].hand.push(next_tile);
+                let discarded : Tile = self.player_choose_discard(curr_player_idx);
+                self.players[curr_player_idx].sort_hand();
 
-            if curr_player.has_winning_hand()
-            {
-                self.score_points_and_advance_dealer(Some(curr_player_idx));
-                break;
-            }
+                if self.players[curr_player_idx].has_winning_hand()
+                {
+                    self.score_points_and_advance_dealer(Some(curr_player_idx));
+                    break;
+                }
+
+              //TODO: Allow other players to chii, pon, and ron from here 
+
+                curr_player_idx = (curr_player_idx + 1) % NUM_PLAYERS;
             
-          //TODO: Allow other players to chii, pon, and ron from here 
 
-            curr_player_idx = (curr_player_idx + 1) % NUM_PLAYERS;
+            let mut curr_player = match curr_player.next() {
+                Some(next_player) => next_player,
+                None => self.players.iter_mut(),
+            }
         }
     }
 
@@ -1196,7 +1399,99 @@ pub fn print_game_state(game : &Game) -> ()
 
 impl Player
 {
-// three great dragons
+    fn hand_is_closed(&self) -> bool
+    {
+        if self.revealed_sets.len() == 0 
+        {
+            return true;
+        }
+        else
+        {
+            for set in &self.revealed_sets
+            {
+                // hand is still closed if it's only closed kans, or a set was created from ron
+                if set.set_type != SetType::ClosedKan && set.ron == false
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+    }
+
+    // returns a pair from the hand or revealed sets. Used to find the pair for winning hands
+    // in the case of the yakuman of all pairs, simply returns the first pair it finds
+    fn get_one_pair(&self) -> Option<Set>
+    {
+        let mut ret_set = Set {
+            set_type : SetType::Pair,
+            tiles : [INVALID_TILE ; 4],
+            ron : false
+        };
+
+        // look for a pair in revealed sets
+        for set in &self.revealed_sets
+        {
+            if set.set_type == SetType::Pair
+            {
+                ret_set.tiles = set.tiles;
+                ret_set.ron = set.ron;
+                return Some(ret_set);
+            }
+        }
+
+        // look for a pair in player's hand
+        let mut i = 0;
+        while i < self.hand.len() - 2
+        {
+            let curr : Tile = self.hand[i];
+            let next : Tile = self.hand[i + 1];
+            let nextnext : Tile = self.hand[i + 2];
+
+            if curr.suit == next.suit && curr.value == next.value
+            {
+                if next.suit == nextnext.suit && next.value == nextnext.value
+                {
+                    i += 3;
+                    continue;
+                }
+                else
+                {
+                    ret_set.tiles[0] = curr;
+                    ret_set.tiles[1] = next;
+                    return Some(ret_set);
+                }
+            }
+
+            i += 1;
+            continue;
+        }
+
+        let last : Tile = self.hand[self.hand.len() - 1];
+        let second_last : Tile = self.hand[self.hand.len() - 2];
+
+        if last.suit == second_last.suit && last.value == second_last.value
+        {
+            ret_set.tiles[0] = second_last;
+            ret_set.tiles[1] = last;
+            return Some(ret_set);
+        }
+
+        return None;
+    }
+    
+    fn yaku_chiitoitsu(&self, game : &Game) -> usize
+    {
+        0
+    }
+
+    fn yaku_pinfu(&self, game : &Game) -> usize
+    {
+        0
+    }
+
+    // three great dragons
     fn yakuman_daisangen(&self, game : &Game) -> usize
     {
         return
@@ -1360,7 +1655,7 @@ impl Player
     {
         // checking for the 4 quads
         if self.revealed_sets.iter().filter(
-            |&set| set.set_type == SetType::Quad).count() != 4
+            |&set| set.set_type == SetType::OpenKan || set.set_type == SetType::ClosedKan).count() != 4
         {
             return 0;
         }
@@ -1517,7 +1812,8 @@ fn test_daisangen()
                 Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
                 INVALID_TILE
-            ]
+            ],
+            ron : true
         }
     );
 
@@ -1568,7 +1864,8 @@ fn test_suuankou()
                 Tile {  suit : Suit::Man, value : SuitVal::Seven, red : false},
                 INVALID_TILE,
                 INVALID_TILE
-            ]
+            ],
+            ron : true,
         }
     );
 
@@ -1596,3 +1893,209 @@ fn test_suushiihou()
 
 //    game.players[3].yakuman_suushiihou(&game)
 }
+
+#[test]
+fn test_fu_1()
+{
+    let mut game = Game::default();
+
+    game.round_wind = SuitVal::South;
+
+    assert_eq!(game.players[1].seat_wind, SuitVal::South);
+
+    let mut winning_player = &mut game.players[1];
+
+    winning_player.hand = vec!(
+        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
+    );
+
+    winning_player.sort_hand();
+
+    winning_player.revealed_sets = vec!(
+        Set {
+            set_type : SetType::ClosedKan,
+            tiles : [
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false } ; 4
+            ],
+            ron : false
+        },
+        Set {
+            set_type : SetType::ClosedKan,
+            tiles : [
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false } ; 4
+            ],
+            ron : false,
+        },
+        Set {
+            set_type : SetType::Triplet,
+            tiles : [
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                INVALID_TILE
+          ],
+          ron : true
+        }
+    );
+
+    winning_player.last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
+    winning_player.winning_wait = Some(WaitType::Shanpon);
+
+    winning_player.ron_or_tsumo = (WinningMethod::Ron, 0);
+
+    // test without rounding to ensure fu is correct
+    assert_eq!(game.players[1].hand_fu(&game, false), 102);
+    //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
+    // TODO: Check for han value in hand
+    game.score_points_and_advance_dealer(Some(1));
+
+
+}
+
+
+
+#[test]
+fn test_fu_2()
+{
+    let mut game = Game::default();
+
+    assert_eq!(game.players[0].seat_wind, SuitVal::East);
+
+    let mut winning_player = &mut game.players[0];
+
+    winning_player.hand = vec!(
+        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+        Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+    );
+
+    winning_player.sort_hand();
+
+    winning_player.revealed_sets = vec!(
+        Set {
+            set_type : SetType::ClosedKan,
+            tiles : [
+                Tile { suit : Suit::Pin, value : SuitVal::One, red : false } ; 4
+            ],
+            ron : false
+        },
+        Set {
+            set_type : SetType::ClosedKan,
+            tiles : [
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false } ; 4
+            ],
+            ron : false,
+        },
+        Set {
+            set_type : SetType::OpenKan,
+            tiles : [
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false } ; 4
+            ],
+            ron : false
+        },
+   );
+
+    winning_player.last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
+    winning_player.winning_wait = Some(WaitType::Tanki);
+
+    winning_player.ron_or_tsumo = (WinningMethod::Tsumo, 0);
+
+
+    // test without rounding to ensure fu is correct
+    assert_eq!(game.players[0].hand_fu(&game, false), 108);
+    //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
+    // TODO: Check for han value in hand
+    game.score_points_and_advance_dealer(Some(0));
+
+
+}
+
+#[test]
+fn test_fu_open_pinfu()
+{
+    let mut game = Game::default();
+
+    assert_eq!(game.players[0].seat_wind, SuitVal::East);
+
+    let mut winning_player = &mut game.players[0];
+
+    winning_player.hand = vec!(
+        Tile { suit : Suit::Man, value : SuitVal::One, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
+        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
+   );
+
+    winning_player.revealed_sets = vec!(
+        Set {
+            set_type : SetType::Sequence,
+            tiles : [
+                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false },
+                INVALID_TILE
+            ],
+            ron : false
+        },
+        Set {
+            set_type : SetType::Sequence,
+            tiles : [
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
+                INVALID_TILE
+            ],
+            ron : false,
+        },
+        Set {
+            set_type : SetType::Sequence,
+            tiles : [
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                INVALID_TILE
+            ],
+            ron : true
+        },
+   );
+
+    winning_player.last_picked_tile = Tile { suit : Suit::Sou, value : SuitVal::Three, red : false };
+    winning_player.winning_wait = Some(WaitType::Ryanmen);
+
+    winning_player.ron_or_tsumo = (WinningMethod::Ron, 3);
+
+
+    // hand gets 0 fu, but hands with 0 fu are rounded up to 30
+    assert_eq!(game.players[0].hand_fu(&game, false), 30);
+    
+    // test that there's no fu points, even with a tsumo
+    game.players[0].revealed_sets[2] = Set {
+            set_type : SetType::Sequence,
+            tiles : [
+                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                INVALID_TILE
+            ],
+            ron : false
+    };
+    game.players[0].last_picked_tile = Tile { suit : Suit::Sou, value : SuitVal::Six, red : false };
+    game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
+
+//    TODO Detect pinfu properly, so as to correctly give no 
+//    assert_eq!(game.players[0].hand_fu(&game, false), 30);
+
+    //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
+    // TODO: Check for han value in hand
+    game.score_points_and_advance_dealer(Some(0));
+
+
+}
+
