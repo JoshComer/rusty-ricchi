@@ -171,15 +171,6 @@ pub struct Player {
     ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
 }
 
-struct EndlessPlayerIter <'a>{
-    players : &'a mut [Player ; NUM_PLAYERS],
-}
-
-impl <'a> EndlessPlayerIter{
-    fn new(players : &'a [Player ; 4])
-}
-
-
 struct PlayerTileIter <'a>{
     player : &'a Player,
     pos : usize,
@@ -1030,8 +1021,33 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>)-> (String, String, String)
 //        let chars = match tile {
 //            INVALID_TILE => "  ",
 //        }
-        let chars = "  ";
-        mid_str.push_str(&format!("{}{}{}", tile_mid_left, chars, tile_mid_right));
+        let char1 = match tile.suit {
+            Suit::Man => "M",
+            Suit::Pin => "P",
+            Suit::Sou => "S",
+            Suit::Honor => "H",
+        };
+
+        let char2 = match tile.value {
+            SuitVal::One => "1",
+            SuitVal::Two => "2",
+            SuitVal::Three => "3",
+            SuitVal::Four => "4",
+            SuitVal::Five => "5",
+            SuitVal::Six => "6",
+            SuitVal::Seven => "7",
+            SuitVal::Eight => "8",
+            SuitVal::Nine => "9",
+            SuitVal::North => "n",
+            SuitVal::East => "e",
+            SuitVal::South => "s",
+            SuitVal::West => "w",
+            SuitVal::Green => "g",
+            SuitVal::White => "h",
+            SuitVal::Red => "r",
+        };
+
+        mid_str.push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
     }
 
     for tile in tile_vec{
@@ -1042,9 +1058,11 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>)-> (String, String, String)
 }
 
 impl Game {
-    fn player_choose_discard(&self, player_idx : usize) -> Tile
+    fn player_choose_discard(&mut self, player_idx : usize) -> Tile
     {
         self.output_game_state(player_idx);
+
+        self.players[player_idx].hand.remove(0);
         INVALID_TILE
     }
 
@@ -1079,17 +1097,13 @@ impl Game {
         println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
         println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
         println!("{: >20}{}{: <20}", tile_mid, " ".repeat(60), tile_mid);
-
-//        for tile in &self.players[player_idx].hand {
-//            println!("{}", tile);
-//        }
+        println!("{: >20}{}{: <20}", tile_bot, " ".repeat(60), tile_bot);
 
         // print current player
         let (top_str, mid_str, bot_str) = mahjong_tiles_strs(&self.players[player_idx].hand);
-        println!("{} {} {} {}", self.players[player_idx].hand.len(), player_idx, 6, 9);
 
         // print current player top tiles with the side player bottom tiles
-        println!("{: >20}{: ^60}{: <20}", tile_bot, top_str, tile_bot);
+        println!("{: ^100}", top_str);
 
         println!("{: ^100}", mid_str);
         println!("{: ^100}", bot_str);
@@ -1242,12 +1256,10 @@ impl Game {
         self.divy_tiles_to_players();
         
         // Dealer is the east wind player
-        let original_dealer_idx = self.players.iter()
+        let mut curr_player_idx : usize = self.players.iter()
             .position(|player| player.seat_wind == SuitVal::East)
             .expect("There was no player with East Wind who could be the dealer");
 
-        let mut curr_player_idx = original_dealer_idx;
-        let mut players_iter = self.players.iter_mut();
         loop
         {
 
@@ -1263,7 +1275,6 @@ impl Game {
 
                 // commented out due to fighting the borrow checker
                 //  let curr_player = &mut self.players[curr_player_idx];
-
                 self.players[curr_player_idx].hand.push(next_tile);
                 let discarded : Tile = self.player_choose_discard(curr_player_idx);
                 self.players[curr_player_idx].sort_hand();
@@ -1275,17 +1286,10 @@ impl Game {
                 }
 
               //TODO: Allow other players to chii, pon, and ron from here 
-
                 curr_player_idx = (curr_player_idx + 1) % NUM_PLAYERS;
             
-
-            let mut curr_player = match curr_player.next() {
-                Some(next_player) => next_player,
-                None => self.players.iter_mut(),
-            }
-        }
+        };
     }
-
 
     fn play_round(&mut self) -> ()
     {
