@@ -1,7 +1,8 @@
 //pub mod game_structs {
 use strum::IntoEnumIterator;
 use rand::Rng;
-use std::{fmt, slice::Windows, usize::MAX};
+use unicode_segmentation::UnicodeSegmentation;
+use std::{fmt, slice::Windows, usize::MAX, char::TryFromCharError, iter::empty, };
 use int_enum::IntEnum;
 use num::pow;
 
@@ -355,7 +356,7 @@ impl Player {
         let mut idx : usize = 0;
         let mut num_pairs = 0;
 
-        while idx < PLAYER_HAND_SIZE - 1
+        while idx < self.hand.len() - 1
         {
             if self.hand[idx] == self.hand[idx + 1]
             {
@@ -626,7 +627,7 @@ impl Player {
     fn print_player(&self) -> ()
     {
         print!("{} Player:", self.seat_wind);
-        print_tiles(&self.hand, PLAYER_HAND_SIZE);
+        print_tiles(&self.hand, self.hand.len());
     }
 
     pub fn has_dragon_or_wind_yakuhai(&self, round_wind : SuitVal) -> bool
@@ -634,7 +635,7 @@ impl Player {
         // goes until index 2, because a triplet is required. So we don't bother
         // checking the last two
 
-        let mut i : usize = PLAYER_HAND_SIZE - 1;
+        let mut i : usize = self.hand.len() - 1;
         while i >= 2
         {
             let curr : Tile = self.hand[i];
@@ -999,36 +1000,50 @@ fn round_up_to_100(points : i32) -> i32
     return (points + (100 - last_two_digits)) as i32;
 }
 
-
-fn mahjong_tiles_strs(tile_vec : & Vec<Tile>)-> (String, String, String)
+fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
 {
-    // returns three strings with mahjong tiles to be printed. The strings do not end in newlines
+    // returns a vector of three line strings. Each tuple is a top, middle, and bottom of 3 char high tiles.
+    // Vector because multiple lines can be returned to fit within a specified line width
 
-    let tile_top = "┌──┐";
-    let tile_mid_left = '│';
-    let tile_mid_right = '│';
-    let tile_bot = "└──┘";
-    
-    let mut top_str = String::with_capacity(tile_top.len() * tile_vec.len());
-    let mut mid_str = String::with_capacity(tile_top.len() * tile_vec.len());
-    let mut bot_str = String::with_capacity(tile_top.len() * tile_vec.len());
+    const tile_top : &str = "┌──┐";
+    const tile_mid_left : char = '│';
+    const tile_mid_right : char = '│';
+    const tile_bot : &str = "└──┘";
 
-    for tile in tile_vec{
-        top_str.push_str(tile_top);
+    let tile_len : usize = tile_top.graphemes(true).count();
+  
+    // always has at least 3 for the top middle and bottom strings
+    let mut ret_vec = vec![];
+    for i in 0..((((tile_vec.len() * tile_len) / line_width) + 1) * 3)
+    {
+        ret_vec.push(
+            String::with_capacity(line_width)
+        );
     }
 
-    for tile in tile_vec {
-//        let chars = match tile {
-//            INVALID_TILE => "  ",
-//        }
-        let char1 = match tile.suit {
-            Suit::Man => "M",
-            Suit::Pin => "P",
-            Suit::Sou => "S",
-            Suit::Honor => "H",
-        };
+    let mut index = 0;
+    for tile in tile_vec{
+        ret_vec[index].push_str(tile_top);
 
-        let char2 = match tile.value {
+        if ret_vec[index].graphemes(true).count() >= line_width
+        {
+            index += 3;
+        }
+    }
+
+    let mut index = 1;
+    for tile in tile_vec {
+        let mut char1 = String::from("");
+        let mut char2 = String::from("");
+
+        char1.push_str(match tile.suit {
+            Suit::Man => "m",
+            Suit::Pin => "p",
+            Suit::Sou => "s",
+            Suit::Honor => "", // don't print suit for honor, just print two chars
+        });
+
+        char2.push_str(match tile.value {        
             SuitVal::One => "1",
             SuitVal::Two => "2",
             SuitVal::Three => "3",
@@ -1038,77 +1053,428 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>)-> (String, String, String)
             SuitVal::Seven => "7",
             SuitVal::Eight => "8",
             SuitVal::Nine => "9",
-            SuitVal::North => "n",
-            SuitVal::East => "e",
-            SuitVal::South => "s",
-            SuitVal::West => "w",
-            SuitVal::Green => "g",
-            SuitVal::White => "h",
-            SuitVal::Red => "r",
+           
+            SuitVal::East => "Ea",
+            SuitVal::South => "So",
+            SuitVal::West => "We",
+            SuitVal::North => "No",
+
+            SuitVal::Green => "Gr",
+            SuitVal::White => "Wh",
+            SuitVal::Red => "Re",
+        });
+
+        if tile.suit == INVALID_TILE.suit && tile.value == INVALID_TILE.value
+        {
+            char1 = String::from(" ");
+            char2 = String::from(" ");
+        }
+
+        if tile.red == true
+        {// https://github.com/rust-lang/rust/issues/7043
+            // https://github.com/rust-lang/rust/issues/21492
+            // https://github.com/rust-lang/rust/issues/8706
+
+//            char1 = String::from("日本");
+ //           char2 = String::from("");
+           // char1.insert_str(0, &"\u{0305}");
+           // char2.insert_str(0, &"\u{0305}");
+            char1 = char1.to_uppercase();
+            println!("Red tile is {}{}", char1, char2);
+        }
+
+        ret_vec[index].push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
+
+        if ret_vec[index].graphemes(true).count() >= line_width
+        {
+            index += 3;
+        }
+    }
+
+    let mut index = 2;
+    for tile in tile_vec{
+        ret_vec[index].push_str(tile_bot);
+        if ret_vec[index].graphemes(true).count() >= line_width
+        {
+            index += 3;
+        }
+    }
+
+
+    // remove extra empty vectors
+    ret_vec = ret_vec.into_iter().filter(|vec| vec.len() != 0).collect();
+
+    if ret_vec.len() >= 3
+    {
+    println!("{}", ret_vec[0]);
+    println!("{}", ret_vec[1]);
+    println!("{}", ret_vec[2]);
+    }
+
+    return ret_vec;
+}
+fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<(String, String, String)>
+{
+    // returns a vector of three line strings. Each tuple is a top, middle, and bottom of 3 char high tiles.
+    // Vector because multiple lines can be returned to fit within a specified line width
+
+    const tile_top : &str = "┌──┐";
+    const tile_mid_left : char = '│';
+    const tile_mid_right : char = '│';
+    const tile_bot : &str = "└──┘";
+
+    let tile_len : usize = tile_top.chars().count();
+   
+    let mut ret_vec = vec![];
+    for i in 0..(((tile_vec.len() * tile_len) / line_width) + 1)
+    {
+        ret_vec.push(
+            (String::with_capacity(line_width), String::with_capacity(line_width), String::with_capacity(line_width))
+        );
+    }
+
+    let mut index = 0;
+    for tile in tile_vec{
+        ret_vec[index].0.push_str(tile_top);
+
+        if ret_vec[index].0.chars().count() >= line_width
+        {
+            index += 1;
+        }
+    }
+
+    let mut index = 0;
+    for tile in tile_vec {
+        let mut char1 = match tile.suit {
+            Suit::Man => "m",
+            Suit::Pin => "p",
+            Suit::Sou => "s",
+            Suit::Honor => "", // don't print suit for honor, just print two chars
         };
 
-        mid_str.push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
+        let mut char2 = match tile.value {
+            SuitVal::One => "1",
+            SuitVal::Two => "2",
+            SuitVal::Three => "3",
+            SuitVal::Four => "4",
+            SuitVal::Five => "5",
+            SuitVal::Six => "6",
+            SuitVal::Seven => "7",
+            SuitVal::Eight => "8",
+            SuitVal::Nine => "9",
+            SuitVal::North => "No",
+            SuitVal::East => "Ea",
+            SuitVal::South => "So",
+            SuitVal::West => "We",
+            SuitVal::Green => "Gr",
+            SuitVal::White => "Wh",
+            SuitVal::Red => "Re",
+        };
+
+        if tile.suit == INVALID_TILE.suit && tile.value == INVALID_TILE.value
+        {
+            char1 = " ";
+            char2 = " ";
+        }
+
+        ret_vec[index].1.push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
+
+        if ret_vec[index].1.chars().count() >= line_width
+        {
+            index += 1;
+        }
     }
 
+    let mut index = 0;
     for tile in tile_vec{
-        bot_str.push_str(tile_bot);
+        ret_vec[index].2.push_str(tile_bot);
+
+        if ret_vec[index].2.chars().count() >= line_width
+        {
+            index += 1;
+        }
     }
 
-    return (top_str, mid_str, bot_str);
+    return ret_vec;
 }
+    enum AlignVertical {
+        Top, Middle, Bottom,
+    }
+
+    enum AlignHorizontal {
+        Left, Middle, Right,
+    }
+
 
 impl Game {
     fn player_choose_discard(&mut self, player_idx : usize) -> Tile
     {
-        self.output_game_state(player_idx);
+        clearscreen::clear().expect("Error! Could not clear the screen");
+        self.players[0].hand[0] = Tile { suit : Suit::Man, value : SuitVal::Four, red : true };
+        self.output_game_state(0);
 
-        self.players[player_idx].hand.remove(0);
-        INVALID_TILE
+
+        let mut throaway = String::from("");
+        std::io::stdin().read_line(&mut throaway);
+
+        println!("Player number {} discarded. Deck marker is {}", player_idx, self.next_tile);
+        let discarded_tile = self.players[player_idx].hand.remove(0);
+        self.players[player_idx].discard.push(discarded_tile);
+    
+        discarded_tile
     }
+
+    fn get_middle_str(&self) -> Vec<String>
+    {
+         const SCREEN_WIDTH : usize = 150;
+// unused currently        const SCREEN_HEIGHT : usize = 130;
+        const MARGIN : usize = 18;
+        const TILE_TOP : &str = "┌─┐";
+        const TILE_MID : &str = "│ │";
+        const TILE_BOT : &str = "└─┘";
+        const TILE_LEN : usize = 3;
+        const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_LEN;
+        const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
+
+        let mut ret_vec = vec![];
+       
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+ 
+        // print side players and discards
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
+        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_MID, " ", TILE_MID));
+        ret_vec.push(format!("{:(>MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{:)<MARGIN_AND_TILE_WIDTH$}", TILE_BOT, " ", TILE_BOT));
+
+        // print empty space
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
+        ret_vec.push(format!("{}", "-".repeat(SCREEN_WIDTH)));
+
+        return ret_vec;
+    }
+
+
+
+    fn add_to_middle_str(&self, middle_str : &mut Vec<String>, add_str : String, vert_align : AlignVertical, horiz_align : AlignHorizontal) -> ()
+    {
+        if middle_str.len() < 10
+        {   return; }
+
+
+        let input_string_width = add_str.chars().count();
+
+        let vert_center = middle_str.len() / 2;
+
+        let mut vert_pos = match vert_align{
+            AlignVertical::Top => 0,
+            AlignVertical::Middle => middle_str.len() / 2,
+            AlignVertical::Bottom => middle_str.len() -1,
+        };
+
+        // let mut horiz_pos = match horiz_align{
+            // AlignHorizontal::Left => 0,
+            // AlignHorizontal::Middle => mi,
+            // AlignHorizontal::Right => middle_str,
+        // };
+
+    }
+
 
     fn output_game_state(&self, player_idx : usize)
     {
         // outputs one "line" of tiles with 3 lines of stdout
 
-        let (top_str, mid_str, bot_str) = mahjong_tiles_strs(&vec![INVALID_TILE ; 14]);
+        // screen width
+        // margin and tile width take up sides of screen width
+        // screen_mid_width is in between these margins and tile widths
+        // consts for screen printing
+        const SCREEN_WIDTH : usize = 150;
+        const MIDDLE_HEIGHT : usize = 26;
+        // unused currently        const SCREEN_HEIGHT : usize = 130;
+        const MARGIN : usize = 22;
+        const TILE_TOP : &str = "┌─┐";
+        const TILE_MID : &str = "│ │";
+        const TILE_BOT : &str = "└─┘";
+        const TILE_LEN : usize = 3;
+        const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_LEN;
+        const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
+        const SCREEN_MID_WIDTH_THIRD : usize = SCREEN_MID_WIDTH / 3;
+        const SCREEN_MID_WIDTH_LEFT : usize = SCREEN_MID_WIDTH / 2;
+
+        const TILES_IN_DISCARD_ROW : usize = 7;
+
+        // player vars for printing info
+        let curr_player : &Player = &self.players[player_idx];
+        let right_player : &Player = &self.players[(player_idx + 1) % NUM_PLAYERS];
+        let opposite_player : &Player = &self.players[(player_idx + 2) % NUM_PLAYERS];
+        let left_player : &Player = &self.players[(player_idx + 3) % NUM_PLAYERS];
+
+        let curr_discard_strs = mahjong_tiles_strs_no_tuple(&curr_player.discard, TILES_IN_DISCARD_ROW * 4);
+        let opposite_discard_strs = mahjong_tiles_strs_no_tuple(&opposite_player.discard, TILES_IN_DISCARD_ROW * 4);
+        let left_discard_strs = mahjong_tiles_strs_no_tuple(&left_player.discard, TILES_IN_DISCARD_ROW * 4);
+        let right_discard_strs = mahjong_tiles_strs_no_tuple(&right_player.discard, TILES_IN_DISCARD_ROW * 4);
+
+
+        let (top_str, mid_str, bot_str) = &mahjong_tiles_strs(&vec![INVALID_TILE ; opposite_player.hand.len()], 1000)[0];
 //·
         // print top player
-        println!("{: ^100}", top_str);
-        println!("{: ^100}", mid_str);
-        println!("{: ^100}", bot_str);
+        println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", opposite_player.points, opposite_player.seat_wind) );
+        println!("{: ^SCREEN_WIDTH$}", top_str);
+        println!("{: ^SCREEN_WIDTH$}", mid_str);
+        println!("{: ^SCREEN_WIDTH$}", bot_str);
 
-        let tile_top = "┌─┐";
-        let tile_mid = "│ │";
-        let tile_bot = "└─┘";
+        // let middle_str = self.get_middle_str();
+        // for str in middle_str{
+            // println!("{}", str);
+        // }
 
-        // print side players
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_top, " ".repeat(60), tile_top);
-        println!("{: >20}{}{: <20}", tile_mid, " ".repeat(60), tile_mid);
-        println!("{: >20}{}{: <20}", tile_bot, " ".repeat(60), tile_bot);
+        // let mut middle_strs_vec : Vec<String> = vec![];
+    //    
+        // for (top_str, mid_str, bot_str) in opposite_discard_strs {
+            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", top_str));
+            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", mid_str));
+            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", bot_str));
+        // }
+// 
+        // for ((top_str_l, mid_str_l, bot_str_l), (top_str_r, mid_str_r, bot_str_r)) in left_discard_strs.into_iter().zip(right_discard_strs)
+        // {
+            // middle_strs_vec.push(format!("{: <SCREEN_MID_WIDTH$}{}"))
+        // }
+
+        let empty_string = String::from("");
+
+        let left_wind_str = format!("pts:{} wind:{}",left_player.points ,left_player.seat_wind);
+        let mut left_margin_iter = std::iter::repeat(&empty_string).take(MIDDLE_HEIGHT / 2).chain(
+            std::iter::once(&left_wind_str).chain(
+                std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT / 2) + 1)
+            )
+        );
+
+        let mut left_hand_num_tile_chars = 2 + left_player.hand.len(); // 2 added, because the bottom tile has 2 chars, but every other tile is just represented by the top char
+        let mut left_hand_iter = std::iter::repeat(empty_string.as_ref()).take((MIDDLE_HEIGHT - left_hand_num_tile_chars) / 2).chain(
+            std::iter::repeat(TILE_TOP).take(left_player.hand.len()).chain(
+                std::iter::once(TILE_MID).chain(
+                    std::iter::once(TILE_BOT).chain(
+//                        std::iter::once(&empty_string)
+                        std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - left_hand_num_tile_chars) / 2) + 1)
+                    ) 
+                )
+            )    
+        );
+
+        let mut right_hand_num_tile_chars = 2 + right_player.hand.len(); // 2 added, because the bottom tile has 2 chars, but every other tile is just represented by the top char
+        let mut right_hand_iter = std::iter::repeat(empty_string.as_ref()).take((MIDDLE_HEIGHT - right_hand_num_tile_chars) / 2).chain(
+            std::iter::repeat(TILE_TOP).take(right_player.hand.len()).chain(
+                std::iter::once(TILE_MID).chain(
+                    std::iter::once(TILE_BOT).chain(
+//                        std::iter::once(&empty_string)
+                        std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - right_hand_num_tile_chars) / 2) + 1)
+                    ) 
+                )
+            )    
+        );
+
+
+        let mut middle_discard_iter = std::iter::once(&empty_string).chain(
+            opposite_discard_strs.iter().chain(
+            std::iter::repeat(&empty_string).take( MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len() - 2).chain(
+                curr_discard_strs.iter()
+            ).chain(std::iter::once(&empty_string))
+        ));
+
+        let mut left_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - left_discard_strs.len()) / 2).chain(
+            left_discard_strs.iter().chain(
+                std::iter::repeat(&empty_string).take(((MIDDLE_HEIGHT - left_discard_strs.len()) / 2) + 1)
+            )
+        );
+
+        let mut right_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - right_discard_strs.len()) / 2).chain(
+            right_discard_strs.iter().chain(
+                std::iter::repeat(&empty_string).take(((MIDDLE_HEIGHT - right_discard_strs.len()) / 2) + 1)
+            )
+        );
+
+        let right_wind_str = format!("pts:{} wind:{}", right_player.points, right_player.seat_wind);
+        let mut right_margin_iter = std::iter::repeat(&empty_string).take(MIDDLE_HEIGHT / 2).chain(
+            std::iter::once(&right_wind_str).chain(
+                std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT / 2) + 1)
+            )
+        );
+
+
+        //        let mut left_discard_iter = left_discard_strs.iter();
+//        let mut right_discard_iter = right_discard_strs.iter();
+        for i in 0..MIDDLE_HEIGHT
+        {
+            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", 
+                format!("{: ^MARGIN$}{: >TILE_LEN$}", left_margin_iter.next().unwrap_or(&empty_string), left_hand_iter.next().unwrap_or(&empty_string)), 
+                format!("{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}", left_discard_iter.next().unwrap_or(&empty_string), middle_discard_iter.next().unwrap_or(&empty_string), right_discard_iter.next().unwrap_or(&empty_string)),
+                format!("{: <TILE_LEN$}{: ^MARGIN$}", right_hand_iter.next().unwrap_or(&empty_string), right_margin_iter.next().unwrap_or(&empty_string))
+            );
+        }
+
+
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // print side players and discards
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+       // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP); // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP);LKI9II
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
+        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_MID, middle_discard_iter.next().unwrap_or(&empty_string), TILE_MID);
+        // println!("{:(>MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{:)<MARGIN_AND_TILE_WIDTH$}", TILE_BOT, middle_discard_iter.next().unwrap_or(&empty_string), TILE_BOT);
+//        print empty space
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
+
 
         // print current player
-        let (top_str, mid_str, bot_str) = mahjong_tiles_strs(&self.players[player_idx].hand);
+        let (top_str, mid_str, bot_str) = &mahjong_tiles_strs(&curr_player.hand, 1000)[0];
 
-        // print current player top tiles with the side player bottom tiles
-        println!("{: ^100}", top_str);
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", top_str, " ");
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", mid_str, " ");
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", bot_str, " ");
+        println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", curr_player.points, curr_player.seat_wind) );
 
-        println!("{: ^100}", mid_str);
-        println!("{: ^100}", bot_str);
-
-
+        // println!("{}", " ".repeat(SCREEN_WIDTH));
+        // println!("{}", " ".repeat(SCREEN_WIDTH));
+        // println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{}", " ".repeat(SCREEN_WIDTH));
+        
+        
     }
 
     fn draw_next_tile(&mut self) -> Option<Tile>
@@ -1236,10 +1602,14 @@ impl Game {
     }
 
     fn divy_tiles_to_players(&mut self) -> ()
-    {
-        for i in 0..(PLAYER_HAND_SIZE * NUM_PLAYERS)
+    {   // players start with 13 tiles and draw their 14th each turn
+        for player in &mut self.players{
+            player.hand.clear();
+        }
+
+        for i in 0..((PLAYER_HAND_SIZE - 1) * NUM_PLAYERS)
         {
-            self.players[i % NUM_PLAYERS].hand[i / 4] = self.tiles[self.next_tile as usize];
+            self.players[i % NUM_PLAYERS].hand.push(self.tiles[self.next_tile as usize]);
             self.next_tile += 1;
         }
 
@@ -1249,11 +1619,18 @@ impl Game {
         }
     }
 
+    fn clear_discards(&mut self) -> ()
+    {
+        for player in &mut self.players{
+            player.discard.clear();
+        }
+    }
 
     fn play_hand(&mut self) -> ()
     {
         self.shuffle();
         self.divy_tiles_to_players();
+        self.clear_discards();
         
         // Dealer is the east wind player
         let mut curr_player_idx : usize = self.players.iter()
@@ -1301,14 +1678,15 @@ impl Game {
             self.play_hand();
 
             // change player seat winds, and which player is dealer
+            // player seat winds change clockwise while round winds change counter clockwise (Weird)
             for player in self.players.iter_mut()
             {
                 player.seat_wind = match player.seat_wind
                 {
-                    SuitVal::East => SuitVal::South,
-                    SuitVal::South => SuitVal::West,
-                    SuitVal::West => SuitVal::North,
-                    SuitVal::North => SuitVal::East,
+                    SuitVal::East => SuitVal::North,
+                    SuitVal::North => SuitVal::West,
+                    SuitVal::West => SuitVal::South,
+                    SuitVal::South => SuitVal::East,
                     _ => panic!("Error: Attempted to advance player's wind from {}", player.seat_wind)
                 }
             }
@@ -1327,7 +1705,8 @@ impl Game {
         {
 
             self.play_round();
-            
+           
+            // round winds change counter clockwise while player seat winds change clockwise (Weird)
             self.round_wind = match self.round_wind {
                 SuitVal::East => SuitVal::South,
                 SuitVal::South => SuitVal::West,
@@ -1390,7 +1769,7 @@ pub fn print_game_state(game : &Game) -> ()
     println!("\nPlayers\n--------------------------------");
     for i in 0..NUM_PLAYERS {
         print!("{} Player {}:{{{}pts}}", game.players[i as usize].seat_wind, i, game.players[i].points);
-        print_tiles(&game.players[i as usize].hand, PLAYER_HAND_SIZE);
+        print_tiles(&game.players[i as usize].hand, game.players[i as usize].hand.len());
     }
 
 }
@@ -1633,7 +2012,7 @@ impl Player
     { // TODO: Double yakuman if the last tile chosen was the extra tile
 
         // check for all tiles being the same suit
-        for i in 1..PLAYER_HAND_SIZE
+        for i in 1..self.hand.len()
         {
             if self.hand[i].suit != self.hand[0].suit
             {
