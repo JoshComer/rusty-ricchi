@@ -1,15 +1,22 @@
 //pub mod game_structs {
 use strum::IntoEnumIterator;
-use rand::Rng;
+use rand::{Rng, rngs::adapter::ReseedingRng};
 use unicode_segmentation::UnicodeSegmentation;
-use std::{fmt, slice::Windows, usize::MAX, char::TryFromCharError, iter::empty, };
+use std::{fmt, slice::Windows, usize::MAX, iter::empty, collections::HashMap, };
 use int_enum::IntEnum;
-use num::pow;
+use num::{pow, bigint::ParseBigIntError, One};
+
+use std::collections::hash_map;
+use std::hash::{Hash, Hasher};
+
+
+pub mod tui_output;
+
 
 
 
 #[allow(dead_code)]
-#[derive(EnumIter, Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(EnumIter, Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Suit {
     Man,
     Pin,
@@ -30,7 +37,7 @@ impl fmt::Display for Suit {
 
 #[repr(i8)]
 #[allow(dead_code)]
-#[derive(EnumIter, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, IntEnum)]
+#[derive(EnumIter, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, IntEnum, Hash)]
 pub enum SuitVal {
     One = 1,
     Two = 2,
@@ -50,6 +57,58 @@ pub enum SuitVal {
     Red = 14,
     White = 15,
     Green = 16
+}
+
+impl SuitVal {
+    fn is_before_num(&self, other : Self) -> bool
+    {
+        match self {
+            SuitVal::One => other == SuitVal::Two,
+            SuitVal::Two => other == SuitVal::Three,
+            SuitVal::Three => other == SuitVal::Four,
+            SuitVal::Four => other == SuitVal::Five,
+            SuitVal::Five => other == SuitVal::Six,
+            SuitVal::Six => other == SuitVal::Seven,
+            SuitVal::Seven => other == SuitVal::Eight,
+            SuitVal::Eight => other == SuitVal::Nine,
+            _ => false,
+        }
+    }
+
+    fn is_after_num(&self, other : Self) -> bool
+    {
+        other.is_before_num(*self)
+    }
+
+    fn get_prev_num(&self) -> Option<Self>
+    {
+        match self {
+            SuitVal::Two => Some(SuitVal::One),
+            SuitVal::Three => Some(SuitVal::Two),
+            SuitVal::Four => Some(SuitVal::Three),
+            SuitVal::Five => Some(SuitVal::Four),
+            SuitVal::Six => Some(SuitVal::Five),
+            SuitVal::Seven => Some(SuitVal::Six),
+            SuitVal::Eight => Some(SuitVal::Seven),
+            SuitVal::Nine => Some(SuitVal::Eight),
+            _ => None,
+        }
+    }
+
+    fn get_next_num(&self) -> Option<Self>
+    {
+        match self {
+            SuitVal::One => Some(SuitVal::Two),
+            SuitVal::Two => Some(SuitVal::Three),
+            SuitVal::Three => Some(SuitVal::Four),
+            SuitVal::Four => Some(SuitVal::Five),
+            SuitVal::Five => Some(SuitVal::Six),
+            SuitVal::Six => Some(SuitVal::Seven),
+            SuitVal::Seven => Some(SuitVal::Eight),
+            SuitVal::Eight => Some(SuitVal::Nine),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for SuitVal {
@@ -79,11 +138,51 @@ impl fmt::Display for SuitVal {
 
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Copy, Eq, Ord, PartialOrd)]
 pub struct Tile {
     pub suit : Suit,
     pub value : SuitVal,
     pub red : bool,
+}
+
+impl Tile {
+    fn get_prev_num_tile(&self) -> Option<Tile>
+    {
+        match self.value.get_prev_num() {
+            Some(prev_value) => Some(Tile {
+                suit : self.suit,
+                value : prev_value,
+                red : false,
+            }),
+            None => None
+        }
+    }
+    
+    fn get_next_num_tile(&self) -> Option<Tile>
+    {
+        match self.value.get_next_num() {
+            Some(next_value) => Some(Tile {
+                suit : self.suit,
+                value : next_value,
+                red : false,
+            }),
+            None => None
+        }
+    }
+}
+
+/// Tiles should hash the same regardless of whether they are red or not
+impl Hash for Tile {
+    fn hash<H: Hasher>(&self, state : &mut H) {
+        self.suit.hash(state);
+        self.value.hash(state);
+    }
+}
+
+impl PartialEq for Tile {
+    fn eq(&self, other : &Self) -> bool {
+        self.suit == other.suit && self.value == other.value
+    }
 }
 
 impl fmt::Display for Tile {
@@ -136,6 +235,20 @@ pub enum WaitType {
     Tanki, // pair wait
 }
 
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+struct Calls {
+    chii : bool,
+    pon : bool,
+    kan : bool,
+    /// TODO: Might need to replace Pair with Ron
+    pair : bool,
+}
+
+impl Default for Calls {
+    fn default() -> Self {
+        Calls { chii: false, pon: false, kan: false, pair : false }
+    }
+}
 
 #[derive(Clone, Eq, PartialEq)]
 pub enum WinningMethod {
@@ -153,9 +266,15 @@ pub struct Player {
     pub hand : Vec<Tile>, 
     pub revealed_sets : Vec<Set>,
 
-    pub discard : Vec<Tile>,
+    /// Only the visible discards from this player
+    /// Must be used with tiles_others_called in order to calculate furiten
+    pub discard_pile : Vec<Tile>,
 
-    tiles_needed_to_win : Vec<Tile>,
+    tiles_others_called : Vec<Tile>,
+
+    waiting_on_tiles : Vec<Tile>,
+    callable_tiles : HashMap<Tile, Calls>,
+
 
     last_picked_tile : Tile,
     pub seat_wind : SuitVal,
@@ -163,6 +282,8 @@ pub struct Player {
     points : i32,
 
     tenpai : bool,
+
+    is_human : bool,
 
     riichi : bool,
     double_riichi : bool,
@@ -185,6 +306,7 @@ impl <'a> PlayerTileIter<'a> {
             pos : 0
         }
     }
+
 }
 
 impl <'a> Iterator for PlayerTileIter<'a> {
@@ -222,7 +344,7 @@ impl <'a> Iterator for PlayerTileIter<'a> {
                     return Some(self.player.revealed_sets[i].tiles[0]);
                 }
             }
-             
+            
             return None;
         }
         else {
@@ -238,9 +360,11 @@ impl Default for Player {
             last_picked_tile : INVALID_TILE,
             revealed_sets : Vec::new(),
 
-            discard : Vec::with_capacity(70),
+            discard_pile : Vec::with_capacity(70),
+            tiles_others_called : Vec::with_capacity(20),
 
-            tiles_needed_to_win : Vec::new(),
+            waiting_on_tiles : Vec::new(),
+            callable_tiles : HashMap::new(),
 
             seat_wind : SuitVal::East,
             points : STARTING_POINTS,
@@ -250,6 +374,8 @@ impl Default for Player {
             riichi : false,
             double_riichi : false,
             iipatsu : false,
+
+            is_human : false,
 
             winning_wait : None,
             ron_or_tsumo : (WinningMethod::NotWonYet, 42),
@@ -275,10 +401,108 @@ impl Player {
         return len;
     }
 
-    fn has_winning_hand(&self) -> bool
+
+
+
+    // discard based
+    // ---------------
+    // chankan
+    // houtei raoyui
+    
+    
+    // discretionary
+    // ---------------
+    
+    // draw based
+    // ----------------
+    // haitei raoyue
+    // menzenchin tsumohou
+    // rinshan kaihou
+    
+    
+    // honor based
+    // --------------------
+    // honitsu
+    // honroutou
+    // shousangen
+    // tanyao
+    // yakuhai
+    
+    
+    // riichi dependent
+    // --------------------
+    // ippatsu
+    
+    
+    // Sequential
+    // --------------------
+    // Iipeikou
+    // Ittsuu / Ikkitsuukan
+    // Pinfu
+    // Ryanpeikou
+    // Sanshoku
+    // sanshoku doujun
+    
+    
+    // Terminal Based
+    // ---------------------
+    // chantaiyao
+    // honroutou
+    // junchan / Junchantaiyaochuu
+    // nagashi mangan
+    // tanyao
+    
+    
+    // triplet based
+    // -----------------------
+    // sanankou
+    // sankantsu
+    // sanshoku doukou
+    // shousangen
+    // toitoi
+    // yakuhai
+    
+    
+    // Suit based
+    // -------------------------
+    // honiisou
+    // Chiniisou
+    
+    
+    // Yakuman
+    // -------------------------
+    
+    
+    // Optional/Local yaku
+    // --------------------------
+    // renhou
+    // daisharin
+    
+    
+    // Other
+    // -------------------------
+
+
+    fn has_yaku(&self) -> bool
     {
-        return false;
+        let (num_pairs, num_sequences, num_triplets_or_quads) = self.num_pairs_sequences_and_triplets_or_quads();
+
+        if num_pairs == 7
+        {   return true;    }
+        else if num_triplets_or_quads == 4
+        {   return true;    }
+        else if self.riichi == true || self.double_riichi == true
+        {   return true;    }
+
+
+
+        false
     }
+
+    // fn has_winning_hand(&self) -> bool
+    // {
+    //     return self.has_complete_hand() && self.has_yaku();
+    // }
 
     fn rotate_wind(&mut self)
     {
@@ -301,6 +525,12 @@ impl Player {
         0
     }
 
+    fn set_is_human(&mut self) -> &mut Player
+    {
+        self.is_human = true;
+        self
+    }
+
     fn set_seat_wind(&mut self, seat_wind : SuitVal) -> &mut Player
     {
         match seat_wind {
@@ -308,9 +538,9 @@ impl Player {
             SuitVal::West => self.seat_wind = SuitVal::West,
             SuitVal::North => self.seat_wind = SuitVal::North,
             _ => self.seat_wind = SuitVal::East
-      }
+        }
 
-      return self;
+        return self;
     }
 
     // greedy. If there's 4 of a tile, there's only 1 triplet reported
@@ -672,92 +902,160 @@ impl Player {
                     {   // non yakuhai triplet found
                         i -= 3;
                     }
-               }
             }
         }
+    }
 
 
         return true;
     }
 
-    // a "complete hand" still needs a yakuhai to be considered a winning hand
-    // and not all winning hands are "complete" hands.
-    pub fn has_complete_hand(&self) -> bool 
+    fn tile_in_hand_triplet(&self, tile : Tile) -> bool
     {
-        // suits can only interact with themselves, 
-        // so we test for sequences, triplets, and pairs in each suit
+        return self.hand.iter().filter(|hand_tile| **hand_tile == tile).count() == 3;
+    }
 
-        // a "set" is either a sequence or a triplet
-        let mut num_sets : i8 = 0;
-        let mut num_pairs : i8 = 0;
+    fn tile_in_hand_sequence(&self, tile : Tile) -> bool
+    {
+            if tile.suit == Suit::Honor
+            {   return false;   }
 
-        let mut curr_tile_idx : usize = 0;
+            // return true if there's the next two in the sequence
+            return self.hand.iter().find(|hand_tile| tile.value.int_value() + 1 == hand_tile.value.int_value() && tile.suit == hand_tile.suit).is_some()
+            && self.hand.iter().find(|hand_tile| tile.value.int_value() + 2 == hand_tile.value.int_value() && tile.suit == hand_tile.suit).is_some();
+    }
 
-        // Since only having one tile of a suit doesn't allow for a set or pair, we only test for the next tile
-        while curr_tile_idx + 1 < PLAYER_HAND_SIZE 
-           && self.hand[curr_tile_idx + 1].suit == Suit::Man
+
+    /// updates the callable_tiles vec on player to enable chii's and pon's
+    /// ONLY UPDATES WITH PAIR WAITS IF PLAYER TENPAI IS SET TO TRUE
+    fn update_callable_tiles(&mut self) -> ()
+    {   // TODO: ??? Maybe make it so that we don't have to recalculate every single callable tile each time
+        self.callable_tiles.clear();
+
+        // update with upgrading open triplets to open kans
+        for set in &self.revealed_sets
         {
-            let curr_tile : Tile = self.hand[curr_tile_idx];
-            let next_tile : Tile = self.hand[curr_tile_idx + 1];
-            
-            // pair or triplet
-            if next_tile.value == curr_tile.value
-            {
-                if curr_tile_idx + 2 < PLAYER_HAND_SIZE 
-                    && self.hand[curr_tile_idx + 2].value == curr_tile.value
-                {
-                    num_sets += 1;
-                    curr_tile_idx = curr_tile_idx + 3;
-                }
-                else
-                {
-                    num_pairs += 1;
-                    curr_tile_idx = curr_tile_idx + 2;
-                }
-
+            match set.set_type {
+                SetType::Triplet => self.callable_tiles.entry(set.tiles[0]).or_default().kan = true,
+                _ => ()
             }
-            // sequence
-            else if next_tile.value.int_value() == curr_tile.value.int_value() + 1
-            {
-                if curr_tile_idx + 2 < PLAYER_HAND_SIZE 
-                    && self.hand[curr_tile_idx + 2].value.int_value() == next_tile.value.int_value() + 1
-                {
-                    num_sets += 1;
-                    curr_tile_idx = curr_tile_idx + 3;
-                }
-                else
-                {
-                    num_pairs += 1;
-                    curr_tile_idx = curr_tile_idx + 2;
-                }               
-            }
-            else
-            {
-                curr_tile_idx += 1;
-            }
-
         }
 
-        // while next_tile.suit == Suit::Pin
-        // {
+        // update with calls to triplets or kans in hand
+        for tile in &self.hand
+        {
+            let num_in_hand = self.hand.iter().filter(|hand_tile| **hand_tile == *tile).count();
 
-        // }
+            if num_in_hand == 2
+            {
+                self.callable_tiles.entry(*tile).or_default().pon = true;
+            }
+            else if num_in_hand == 3
+            {
+                let mut entry = self.callable_tiles.entry(*tile).or_default();
+                entry.pon = true;
+                entry.kan = true;
+            }
+        }
 
-        // while next_tile.suit == Suit::Sou
-        // {
+        // the commented code should do the same thing as the lines below. No idea why it doesn't work sometimes though
+        let mut last_numbered_tile_idx = self.hand.iter().rposition(
+                |find_tile| find_tile.suit != Suit::Honor
+            );
 
-        // }
 
-        // // honor tiles can only come in triplets
-        // while next_tile.suit == Suit::Honor
-        // {
+        // if there's more than one numbered tile, look through them for sequences
+        if let Some(last_numbered_tile_idx) = last_numbered_tile_idx
+        {
+            if last_numbered_tile_idx != 0
+            {
+                // ignoring the first and numbered tile, because if it's part of a sequence then we'll find from the tiles next to them
+                for i in 1..(last_numbered_tile_idx + 1)
+                {
+                    let curr_tile = self.hand[i];
 
-        // }
+                    // only checking for two tile sequences behind our current tile, because we check until the last tile
+                    let prev_tile_in_sequence = self.hand.iter().find(
+                        |find_tile| find_tile.value.is_before_num(curr_tile.value) && find_tile.suit == curr_tile.suit
+                    );
 
-        return num_pairs == 1 && num_sets == 4;
+                    // add tiles to complete the sequence from 2 tiles to 3 if there's a tile in this hand behind the current one
+                    if let Some(prev_tile_in_sequence) = prev_tile_in_sequence
+                    {
+                        
+                        if let Some(third_tile_behind) = prev_tile_in_sequence.get_prev_num_tile()
+                        {
+                            self.callable_tiles.entry(third_tile_behind).or_default().chii = true;
+                        }
+
+                        if let Some(third_tile_ahead) = curr_tile.get_next_num_tile()
+                        {
+                            self.callable_tiles.entry(third_tile_ahead).or_default().chii = true;
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // if in tenpai, look for possible pairs
+        if self.tenpai
+        {
+            // add lonely tiles
+            for tile in &self.hand
+            {
+                if self.tiles_num_of(tile.suit, tile.value) == 1 && ! self.callable_tiles.contains_key(tile)
+                {
+                    self.callable_tiles.entry(*tile).or_default().pair = true;
+                }
+            }
+        }
+    }
+
+
+    // a "complete hand" still needs a yakuhai to be considered a winning hand
+    // and not all winning hands are "complete" hands.
+    pub fn check_complete_hand_and_update_waits(&self) -> bool 
+    {
+        let (tile_vec, mut hands_vec) = self.get_hands_with_pairs();
+
+        let mut vec_vec_of_sets : Vec<Vec<Set>> = vec![];
+
+        for hand in &mut hands_vec
+        {
+            for inner_hand in Player::find_triplets_from_pair_hands(hand)
+            {
+                vec_vec_of_sets.push(inner_hand);
+            }
+        }
+
+        let mut max : usize = 0;
+        for vec_set in &vec_vec_of_sets
+        {
+            let local_max = vec_set.len();
+            if local_max > max
+            {
+                max = local_max;
+            }
+        }
+
+        // remove the sets which 
+        vec_vec_of_sets.retain(|vec_set| vec_set.len() == max);
+
+        println!("Len of vec_vec_of_sets is {}", vec_vec_of_sets.len());
+        for vec in vec_vec_of_sets{
+            print!("..next has a triplet num of {}..", vec.len());
+        }
+        print!("\n");
+
+//        let (pairs, sequences, triplets_and_quads) = self.num_pairs_and_triplets();
+
+        false
     }
 }
 
+
+// TODO: TESTCASE: m2,m3,m4,p3,p4,p5,p8,s4,s4,s4,s6,s8,s8,s8 - should have four triplets, but no pairs
 
 const NUM_GAME_TILES : usize = 136;
 pub const NUM_PLAYERS    : usize = 4;
@@ -772,6 +1070,7 @@ pub struct Game {
 
     pub num_called_tiles : usize,
 
+    curr_player_idx : usize,
     players : [Player; NUM_PLAYERS],
 
     round_wind : SuitVal,
@@ -800,6 +1099,8 @@ impl Default for Game
 
             dora_idx : NUM_GAME_TILES - 14,
             ura_dora_idx : NUM_GAME_TILES - 7,
+
+            curr_player_idx : usize::MAX,
 
             tiles : [
                 Tile { suit : Suit::Man, value : SuitVal::One, red : false},
@@ -976,7 +1277,7 @@ impl Default for Game
             next_tile : 0,
 
             players : [
-                Player::default(),        
+                Player::default().set_is_human().to_owned(),        
                 Player::default().set_seat_wind(SuitVal::South).to_owned(),
                 Player::default().set_seat_wind(SuitVal::West).to_owned(),
                 Player::default().set_seat_wind(SuitVal::North).to_owned(),
@@ -994,24 +1295,24 @@ fn round_up_to_100(points : i32) -> i32
 {   // no rounding needed
     if points % 100 == 0
     {   return points;   }
-   
+
     let last_two_digits = points % 100;
 
     return (points + (100 - last_two_digits)) as i32;
 }
 
-fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
+fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
 {
     // returns a vector of three line strings. Each tuple is a top, middle, and bottom of 3 char high tiles.
     // Vector because multiple lines can be returned to fit within a specified line width
 
-    const tile_top : &str = "┌──┐";
-    const tile_mid_left : char = '│';
-    const tile_mid_right : char = '│';
-    const tile_bot : &str = "└──┘";
+    const TILE_TOP : &str = "┌──┐";
+    const TILE_MID_LEFT : char = '│';
+    const TILE_MID_RIGHT : char = '│';
+    const TILE_BOT : &str = "└──┘";
 
-    let tile_len : usize = tile_top.graphemes(true).count();
-  
+    let tile_len : usize = TILE_TOP.graphemes(true).count();
+
     // always has at least 3 for the top middle and bottom strings
     let mut ret_vec = vec![];
     for i in 0..((((tile_vec.len() * tile_len) / line_width) + 1) * 3)
@@ -1023,7 +1324,7 @@ fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec
 
     let mut index = 0;
     for tile in tile_vec{
-        ret_vec[index].push_str(tile_top);
+        ret_vec[index].push_str(TILE_TOP);
 
         if ret_vec[index].graphemes(true).count() >= line_width
         {
@@ -1053,7 +1354,7 @@ fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec
             SuitVal::Seven => "7",
             SuitVal::Eight => "8",
             SuitVal::Nine => "9",
-           
+            
             SuitVal::East => "Ea",
             SuitVal::South => "So",
             SuitVal::West => "We",
@@ -1080,10 +1381,9 @@ fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec
            // char1.insert_str(0, &"\u{0305}");
            // char2.insert_str(0, &"\u{0305}");
             char1 = char1.to_uppercase();
-            println!("Red tile is {}{}", char1, char2);
         }
 
-        ret_vec[index].push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
+        ret_vec[index].push_str(&format!("{}{}{}{}", TILE_MID_LEFT, char1, char2, TILE_MID_RIGHT));
 
         if ret_vec[index].graphemes(true).count() >= line_width
         {
@@ -1093,7 +1393,7 @@ fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec
 
     let mut index = 2;
     for tile in tile_vec{
-        ret_vec[index].push_str(tile_bot);
+        ret_vec[index].push_str(TILE_BOT);
         if ret_vec[index].graphemes(true).count() >= line_width
         {
             index += 3;
@@ -1104,378 +1404,85 @@ fn mahjong_tiles_strs_no_tuple(tile_vec : & Vec<Tile>, line_width : usize)-> Vec
     // remove extra empty vectors
     ret_vec = ret_vec.into_iter().filter(|vec| vec.len() != 0).collect();
 
-    if ret_vec.len() >= 3
-    {
-    println!("{}", ret_vec[0]);
-    println!("{}", ret_vec[1]);
-    println!("{}", ret_vec[2]);
-    }
-
     return ret_vec;
 }
-fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<(String, String, String)>
-{
-    // returns a vector of three line strings. Each tuple is a top, middle, and bottom of 3 char high tiles.
-    // Vector because multiple lines can be returned to fit within a specified line width
-
-    const tile_top : &str = "┌──┐";
-    const tile_mid_left : char = '│';
-    const tile_mid_right : char = '│';
-    const tile_bot : &str = "└──┘";
-
-    let tile_len : usize = tile_top.chars().count();
-   
-    let mut ret_vec = vec![];
-    for i in 0..(((tile_vec.len() * tile_len) / line_width) + 1)
-    {
-        ret_vec.push(
-            (String::with_capacity(line_width), String::with_capacity(line_width), String::with_capacity(line_width))
-        );
-    }
-
-    let mut index = 0;
-    for tile in tile_vec{
-        ret_vec[index].0.push_str(tile_top);
-
-        if ret_vec[index].0.chars().count() >= line_width
-        {
-            index += 1;
-        }
-    }
-
-    let mut index = 0;
-    for tile in tile_vec {
-        let mut char1 = match tile.suit {
-            Suit::Man => "m",
-            Suit::Pin => "p",
-            Suit::Sou => "s",
-            Suit::Honor => "", // don't print suit for honor, just print two chars
-        };
-
-        let mut char2 = match tile.value {
-            SuitVal::One => "1",
-            SuitVal::Two => "2",
-            SuitVal::Three => "3",
-            SuitVal::Four => "4",
-            SuitVal::Five => "5",
-            SuitVal::Six => "6",
-            SuitVal::Seven => "7",
-            SuitVal::Eight => "8",
-            SuitVal::Nine => "9",
-            SuitVal::North => "No",
-            SuitVal::East => "Ea",
-            SuitVal::South => "So",
-            SuitVal::West => "We",
-            SuitVal::Green => "Gr",
-            SuitVal::White => "Wh",
-            SuitVal::Red => "Re",
-        };
-
-        if tile.suit == INVALID_TILE.suit && tile.value == INVALID_TILE.value
-        {
-            char1 = " ";
-            char2 = " ";
-        }
-
-        ret_vec[index].1.push_str(&format!("{}{}{}{}", tile_mid_left, char1, char2, tile_mid_right));
-
-        if ret_vec[index].1.chars().count() >= line_width
-        {
-            index += 1;
-        }
-    }
-
-    let mut index = 0;
-    for tile in tile_vec{
-        ret_vec[index].2.push_str(tile_bot);
-
-        if ret_vec[index].2.chars().count() >= line_width
-        {
-            index += 1;
-        }
-    }
-
-    return ret_vec;
-}
-    enum AlignVertical {
-        Top, Middle, Bottom,
-    }
-
-    enum AlignHorizontal {
-        Left, Middle, Right,
-    }
-
 
 impl Game {
-    fn player_choose_discard(&mut self, player_idx : usize) -> Tile
+    fn player_choose_discard_or_win(&mut self, player_idx : usize) -> Option<Tile>
     {
         clearscreen::clear().expect("Error! Could not clear the screen");
-        self.players[0].hand[0] = Tile { suit : Suit::Man, value : SuitVal::Four, red : true };
-        self.output_game_state(0);
+        tui_output::output_game_state(self, 0);
 
+        let mut discard_idx : usize;
 
-        let mut throaway = String::from("");
-        std::io::stdin().read_line(&mut throaway);
-
-        println!("Player number {} discarded. Deck marker is {}", player_idx, self.next_tile);
-        let discarded_tile = self.players[player_idx].hand.remove(0);
-        self.players[player_idx].discard.push(discarded_tile);
-    
-        discarded_tile
-    }
-
-    fn get_middle_str(&self) -> Vec<String>
-    {
-         const SCREEN_WIDTH : usize = 150;
-// unused currently        const SCREEN_HEIGHT : usize = 130;
-        const MARGIN : usize = 18;
-        const TILE_TOP : &str = "┌─┐";
-        const TILE_MID : &str = "│ │";
-        const TILE_BOT : &str = "└─┘";
-        const TILE_LEN : usize = 3;
-        const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_LEN;
-        const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
-
-        let mut ret_vec = vec![];
-       
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
- 
-        // print side players and discards
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ",TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP));
-        ret_vec.push(format!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_MID, " ", TILE_MID));
-        ret_vec.push(format!("{:(>MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{:)<MARGIN_AND_TILE_WIDTH$}", TILE_BOT, " ", TILE_BOT));
-
-        // print empty space
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", " ".repeat(SCREEN_WIDTH)));
-        ret_vec.push(format!("{}", "-".repeat(SCREEN_WIDTH)));
-
-        return ret_vec;
-    }
-
-
-
-    fn add_to_middle_str(&self, middle_str : &mut Vec<String>, add_str : String, vert_align : AlignVertical, horiz_align : AlignHorizontal) -> ()
-    {
-        if middle_str.len() < 10
-        {   return; }
-
-
-        let input_string_width = add_str.chars().count();
-
-        let vert_center = middle_str.len() / 2;
-
-        let mut vert_pos = match vert_align{
-            AlignVertical::Top => 0,
-            AlignVertical::Middle => middle_str.len() / 2,
-            AlignVertical::Bottom => middle_str.len() -1,
-        };
-
-        // let mut horiz_pos = match horiz_align{
-            // AlignHorizontal::Left => 0,
-            // AlignHorizontal::Middle => mi,
-            // AlignHorizontal::Right => middle_str,
-        // };
-
-    }
-
-
-    fn output_game_state(&self, player_idx : usize)
-    {
-        // outputs one "line" of tiles with 3 lines of stdout
-
-        // screen width
-        // margin and tile width take up sides of screen width
-        // screen_mid_width is in between these margins and tile widths
-        // consts for screen printing
-        const SCREEN_WIDTH : usize = 150;
-        const MIDDLE_HEIGHT : usize = 26;
-        // unused currently        const SCREEN_HEIGHT : usize = 130;
-        const MARGIN : usize = 22;
-        const TILE_TOP : &str = "┌─┐";
-        const TILE_MID : &str = "│ │";
-        const TILE_BOT : &str = "└─┘";
-        const TILE_LEN : usize = 3;
-        const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_LEN;
-        const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
-        const SCREEN_MID_WIDTH_THIRD : usize = SCREEN_MID_WIDTH / 3;
-        const SCREEN_MID_WIDTH_LEFT : usize = SCREEN_MID_WIDTH / 2;
-
-        const TILES_IN_DISCARD_ROW : usize = 7;
-
-        // player vars for printing info
-        let curr_player : &Player = &self.players[player_idx];
-        let right_player : &Player = &self.players[(player_idx + 1) % NUM_PLAYERS];
-        let opposite_player : &Player = &self.players[(player_idx + 2) % NUM_PLAYERS];
-        let left_player : &Player = &self.players[(player_idx + 3) % NUM_PLAYERS];
-
-        let curr_discard_strs = mahjong_tiles_strs_no_tuple(&curr_player.discard, TILES_IN_DISCARD_ROW * 4);
-        let opposite_discard_strs = mahjong_tiles_strs_no_tuple(&opposite_player.discard, TILES_IN_DISCARD_ROW * 4);
-        let left_discard_strs = mahjong_tiles_strs_no_tuple(&left_player.discard, TILES_IN_DISCARD_ROW * 4);
-        let right_discard_strs = mahjong_tiles_strs_no_tuple(&right_player.discard, TILES_IN_DISCARD_ROW * 4);
-
-
-        let (top_str, mid_str, bot_str) = &mahjong_tiles_strs(&vec![INVALID_TILE ; opposite_player.hand.len()], 1000)[0];
-//·
-        // print top player
-        println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", opposite_player.points, opposite_player.seat_wind) );
-        println!("{: ^SCREEN_WIDTH$}", top_str);
-        println!("{: ^SCREEN_WIDTH$}", mid_str);
-        println!("{: ^SCREEN_WIDTH$}", bot_str);
-
-        // let middle_str = self.get_middle_str();
-        // for str in middle_str{
-            // println!("{}", str);
-        // }
-
-        // let mut middle_strs_vec : Vec<String> = vec![];
-    //    
-        // for (top_str, mid_str, bot_str) in opposite_discard_strs {
-            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", top_str));
-            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", mid_str));
-            // middle_strs_vec.push(format!("{: ^SCREEN_MID_WIDTH$}", bot_str));
-        // }
-// 
-        // for ((top_str_l, mid_str_l, bot_str_l), (top_str_r, mid_str_r, bot_str_r)) in left_discard_strs.into_iter().zip(right_discard_strs)
-        // {
-            // middle_strs_vec.push(format!("{: <SCREEN_MID_WIDTH$}{}"))
-        // }
-
-        let empty_string = String::from("");
-
-        let left_wind_str = format!("pts:{} wind:{}",left_player.points ,left_player.seat_wind);
-        let mut left_margin_iter = std::iter::repeat(&empty_string).take(MIDDLE_HEIGHT / 2).chain(
-            std::iter::once(&left_wind_str).chain(
-                std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT / 2) + 1)
-            )
-        );
-
-        let mut left_hand_num_tile_chars = 2 + left_player.hand.len(); // 2 added, because the bottom tile has 2 chars, but every other tile is just represented by the top char
-        let mut left_hand_iter = std::iter::repeat(empty_string.as_ref()).take((MIDDLE_HEIGHT - left_hand_num_tile_chars) / 2).chain(
-            std::iter::repeat(TILE_TOP).take(left_player.hand.len()).chain(
-                std::iter::once(TILE_MID).chain(
-                    std::iter::once(TILE_BOT).chain(
-//                        std::iter::once(&empty_string)
-                        std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - left_hand_num_tile_chars) / 2) + 1)
-                    ) 
-                )
-            )    
-        );
-
-        let mut right_hand_num_tile_chars = 2 + right_player.hand.len(); // 2 added, because the bottom tile has 2 chars, but every other tile is just represented by the top char
-        let mut right_hand_iter = std::iter::repeat(empty_string.as_ref()).take((MIDDLE_HEIGHT - right_hand_num_tile_chars) / 2).chain(
-            std::iter::repeat(TILE_TOP).take(right_player.hand.len()).chain(
-                std::iter::once(TILE_MID).chain(
-                    std::iter::once(TILE_BOT).chain(
-//                        std::iter::once(&empty_string)
-                        std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - right_hand_num_tile_chars) / 2) + 1)
-                    ) 
-                )
-            )    
-        );
-
-
-        let mut middle_discard_iter = std::iter::once(&empty_string).chain(
-            opposite_discard_strs.iter().chain(
-            std::iter::repeat(&empty_string).take( MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len() - 2).chain(
-                curr_discard_strs.iter()
-            ).chain(std::iter::once(&empty_string))
-        ));
-
-        let mut left_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - left_discard_strs.len()) / 2).chain(
-            left_discard_strs.iter().chain(
-                std::iter::repeat(&empty_string).take(((MIDDLE_HEIGHT - left_discard_strs.len()) / 2) + 1)
-            )
-        );
-
-        let mut right_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - right_discard_strs.len()) / 2).chain(
-            right_discard_strs.iter().chain(
-                std::iter::repeat(&empty_string).take(((MIDDLE_HEIGHT - right_discard_strs.len()) / 2) + 1)
-            )
-        );
-
-        let right_wind_str = format!("pts:{} wind:{}", right_player.points, right_player.seat_wind);
-        let mut right_margin_iter = std::iter::repeat(&empty_string).take(MIDDLE_HEIGHT / 2).chain(
-            std::iter::once(&right_wind_str).chain(
-                std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT / 2) + 1)
-            )
-        );
-
-
-        //        let mut left_discard_iter = left_discard_strs.iter();
-//        let mut right_discard_iter = right_discard_strs.iter();
-        for i in 0..MIDDLE_HEIGHT
+        // make a choice on winning or which tile to discard
+        if self.players[player_idx].is_human
         {
-            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", 
-                format!("{: ^MARGIN$}{: >TILE_LEN$}", left_margin_iter.next().unwrap_or(&empty_string), left_hand_iter.next().unwrap_or(&empty_string)), 
-                format!("{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}", left_discard_iter.next().unwrap_or(&empty_string), middle_discard_iter.next().unwrap_or(&empty_string), right_discard_iter.next().unwrap_or(&empty_string)),
-                format!("{: <TILE_LEN$}{: ^MARGIN$}", right_hand_iter.next().unwrap_or(&empty_string), right_margin_iter.next().unwrap_or(&empty_string))
-            );
+
+            let player_current_hand = self.players[player_idx].hand.clone();
+            let player_can_win : bool = self.players[player_idx].check_complete_hand_and_update_waits();
+            self.players[player_idx].hand = player_current_hand; // checking for a complete hand requires it be sorted
+                                                                // but we want the newest drawn tile to be shown to the right for discarding purposes
+
+            // TODO: Put extra text for if you can win. Make choosing to not win make you type no-win
+            if player_can_win
+            {
+                println!("You should be able to win 77777777777777777777777777777777777777777777777777777777777777777777777777777777777777");
+            }
+            println!("Enter which tile you would like to discard (\"n\" standing for \"new\" works for the rightmost drawn tile)");
+
+            let mut input = String::from("");
+            std::io::stdin().read_line(&mut input).expect("stdin readline failed");
+            input = input.trim().to_lowercase();
+            
+            discard_idx = loop {
+
+                let input_as_num = input.parse::<usize>();
+
+                if let Ok(input_as_num) = input_as_num
+                {
+                    // We give the player numbers starting from 1, but indexes start from 0
+                    let input_as_num = input_as_num - 1;
+
+                    if input_as_num > self.players[player_idx].hand.len()
+                    {
+                        println!("Enter a number within the valid range!");
+                        continue;
+                    }
+                    else
+                    {
+                        break input_as_num;
+                    }
+                }
+                else if input == "n"
+                {
+                    break self.players[player_idx].hand.len() - 1;
+                }
+                else
+                {
+                    println!("Enter a tile to discard!");
+                }
+
+                input.clear();
+                std::io::stdin().read_line(&mut input).expect("stdin readline failed");
+                input = input.trim().to_lowercase();
+            };
+        }
+        // computer picks which to discard
+        else
+        {
+            let mut input = String::from("");
+            std::io::stdin().read_line(&mut input).expect("stdin readline failed");
+            discard_idx = 0;
         }
 
-
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // print side players and discards
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, opposite_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-       // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP); // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, " ", TILE_TOP);LKI9II
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_TOP, middle_discard_iter.next().unwrap_or(&empty_string), TILE_TOP);
-        // println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", TILE_MID, middle_discard_iter.next().unwrap_or(&empty_string), TILE_MID);
-        // println!("{:(>MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{:)<MARGIN_AND_TILE_WIDTH$}", TILE_BOT, middle_discard_iter.next().unwrap_or(&empty_string), TILE_BOT);
-//        print empty space
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-        // println!("{: ^SCREEN_WIDTH$}", middle_discard_iter.next().unwrap_or(&empty_string));
-
-
-        // print current player
-        let (top_str, mid_str, bot_str) = &mahjong_tiles_strs(&curr_player.hand, 1000)[0];
-
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", top_str, " ");
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", mid_str, " ");
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", bot_str, " ");
-        println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", curr_player.points, curr_player.seat_wind) );
-
-        // println!("{}", " ".repeat(SCREEN_WIDTH));
-        // println!("{}", " ".repeat(SCREEN_WIDTH));
-        // println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        
-        
+        println!("Player number {} discarded tile {}. Deck marker is {}", player_idx, discard_idx, self.next_tile);
+        let discarded_tile = self.players[player_idx].hand.remove(discard_idx);
+        self.players[player_idx].discard_pile.push(discarded_tile);
+    
+        Some(discarded_tile)
     }
+
 
     fn draw_next_tile(&mut self) -> Option<Tile>
     {
@@ -1622,7 +1629,8 @@ impl Game {
     fn clear_discards(&mut self) -> ()
     {
         for player in &mut self.players{
-            player.discard.clear();
+            player.discard_pile.clear();
+            player.tiles_others_called.clear();
         }
     }
 
@@ -1633,13 +1641,12 @@ impl Game {
         self.clear_discards();
         
         // Dealer is the east wind player
-        let mut curr_player_idx : usize = self.players.iter()
+        self.curr_player_idx = self.players.iter()
             .position(|player| player.seat_wind == SuitVal::East)
             .expect("There was no player with East Wind who could be the dealer");
 
         loop
         {
-
                 //draw the next tile or exhaustive draw
                 let next_tile = self.draw_next_tile();
                 if next_tile.is_none()
@@ -1652,18 +1659,19 @@ impl Game {
 
                 // commented out due to fighting the borrow checker
                 //  let curr_player = &mut self.players[curr_player_idx];
-                self.players[curr_player_idx].hand.push(next_tile);
-                let discarded : Tile = self.player_choose_discard(curr_player_idx);
-                self.players[curr_player_idx].sort_hand();
+                self.players[self.curr_player_idx].hand.push(next_tile);
+                let discarded_tile = self.player_choose_discard_or_win(self.curr_player_idx);
+                self.players[self.curr_player_idx].sort_hand();
 
-                if self.players[curr_player_idx].has_winning_hand()
+                // A player always discards, unless they chose to win
+                if discarded_tile.is_none()
                 {
-                    self.score_points_and_advance_dealer(Some(curr_player_idx));
+                    self.score_points_and_advance_dealer(Some(self.curr_player_idx));
                     break;
                 }
 
               //TODO: Allow other players to chii, pon, and ron from here 
-                curr_player_idx = (curr_player_idx + 1) % NUM_PLAYERS;
+                self.curr_player_idx = (self.curr_player_idx + 1) % NUM_PLAYERS;
             
         };
     }
@@ -1779,9 +1787,194 @@ pub fn print_game_state(game : &Game) -> ()
 
 
 
+enum YakuType {
+// closed only and 1 han
+    Riichi,
+    Ippatsu,
+    MenzenchinTsumohou,
+    Pinfu,
+    Iipeikou,
+// 1 han
+    HaiteiRaoyue,
+    HouteiRaoyui,
+    RinshanKaihou,
+    Chankan,
+    Tanyao,
+    Yakuhai,
+// 2 han
+    DoubleRiichi,
+    Chantaiyao,
+    SanshokuDoujun,
+    Ikkitsuukan,
+    Toitoi,
+    Sanankou,
+    SanshokuDoukou,
+    Sankantsu,
+    Chiitoitsu,
+    Honroutou,
+    Shousangen,
+// 3 han
+    Honitsu,
+    Junchantaiyao,
+    Ryanpeikou,
+// 6 han
+    Chinitsu,
+
+// YAKUMAN
+    Kazoe,
+    KokushiMusou,
+    Daisangen,
+    Suuankou,
+    Shousuushi,
+    Daisuushi,
+    Tsuuiisou,
+    Ryuuiisou,
+    Chinroutou,
+    ChuurenPoutou,
+    Suukantsu,
+    Tenhou,
+    Chiihou,
+    NagashiMangan,
+    Renhou,
+    Daisharin,
+}
+
 
 impl Player
 {
+    /// Looks through a hand and returns a tuple containing (pairs found, other tiles in the hand aside from the pair).
+    /// If a tile pair has already been ron'd or tsumo'd into the revealed sets, then it returns early with just that pair
+    /// since that will be the winning hand
+    /// # Returns
+    /// 1. `Vec<Tile>` : A vector of tiles which were found as pairs in the hand
+    /// 2. `Vec<Vec<Tile>>` : A vector containing hands associated with each of the pairs. If the `Vec<Tile>` from 1 above
+    /// from above contained a 4 of man, then the `Vec<Vec<Tile>>` here would contain all other tiles from
+    /// the passed in hand with 2 of the 4 man tiles removed 
+    fn get_hands_with_pairs(&self) -> (Vec<Tile>, Vec<Vec<Tile>>)
+    {
+        let mut pairs : Vec<Tile> = vec![];
+        let mut hands : Vec<Vec<Tile>> = vec![vec![]];
+
+        // possible early return
+        // if a tile pair has been tsumo'd or ron'd then the winning hand contains that pair
+        for set in &self.revealed_sets
+        {
+            match set.set_type {
+                SetType::Pair => {
+                    pairs.push(set.tiles[0]);
+                    hands.push(self.hand.clone());
+                    return (pairs, hands);
+                },
+                _ => ()
+            }
+        }
+
+        for tile in &self.hand
+        {
+            if (! pairs.contains(tile)) && self.hand.iter().filter(|vec_tile| **vec_tile == *tile).count() >= 2
+            {
+                pairs.push(*tile);
+                hands.push(self.hand.clone());
+                let mut recent_hand : &mut Vec<Tile> = hands.last_mut().unwrap();
+                // remove tile twice from the hand we just added, since we already decided it was the pair. We will check for combinations of the other tiles later
+                recent_hand.remove(recent_hand.iter().position(|iter_tile| *iter_tile == *tile).expect("Should never happen"));
+                recent_hand.remove(recent_hand.iter().position(|iter_tile| *iter_tile == *tile).expect("Should never happen"));
+            }
+        }
+
+        return (pairs, hands);
+    }
+
+    /// takes a sorted vector of tiles and returns possible completed combinations of triplets and sequences within it.
+    /// It is assumed that a pair of tiles has been removed from this hand.
+    /// Returns a vector of possibilites, because it's possible to have a hand that could be interpreted two ways passed
+    /// into this function. For example, all numbers of the same suit 444555666777 could be all triplets or 3 sequences and a triplet.
+    /// whichever scores higher is how it should be interpreted
+    fn find_triplets_from_pair_hands(hand : &mut Vec<Tile>) -> Vec<Vec<Set>>
+    {
+        let mut ret_vec : Vec<Vec<Set>> = vec![vec![]];
+
+        fn is_part_of_triplet(hand : &Vec<Tile>, check_tile : Tile) -> bool
+        {
+            return hand.iter().filter(|hand_tile| **hand_tile == check_tile).count() == 3;
+        }
+
+        // only checks up because we go left to right
+        fn is_part_of_sequence(hand : &Vec<Tile>, check_tile : Tile) -> bool
+        {
+            if check_tile.suit == Suit::Honor
+            {   return false;   }
+
+            // return true if there's the next two in the sequence
+            return hand.iter().find(|hand_tile| check_tile.value.int_value() + 1 == hand_tile.value.int_value() && check_tile.suit == hand_tile.suit).is_some()
+            && hand.iter().find(|hand_tile| check_tile.value.int_value() + 2 == hand_tile.value.int_value() && check_tile.suit == hand_tile.suit).is_some();
+        }
+
+        // we can only have one of each triplet, so if we've seen a triplet before we don't check a permutation with it again in this iteration
+        let mut seen_triplets_vec : Vec<Tile> = vec![];
+
+        for tile in &*hand
+        {
+            if is_part_of_triplet(hand, *tile) && (! seen_triplets_vec.contains(tile))
+            {
+                let found_triplet = Set {
+                    set_type : SetType::Triplet,
+                    tiles : [ *tile ; 4 ],
+                    ron : false
+                };
+
+                let mut new_hand = hand.clone();
+                // remove 3 of the element
+                new_hand.remove(new_hand.iter().position(|hand_tile| *hand_tile == *tile).unwrap());
+                new_hand.remove(new_hand.iter().position(|hand_tile| *hand_tile == *tile).unwrap());
+                new_hand.remove(new_hand.iter().position(|hand_tile| *hand_tile == *tile).unwrap());
+
+                let mut sets_vec_vec = Player::find_triplets_from_pair_hands(&mut new_hand);
+
+                for mut set_vec in sets_vec_vec {
+                    set_vec.push(found_triplet);
+                    ret_vec.push(set_vec);
+                }
+
+                seen_triplets_vec.push(*tile);
+            }
+
+            // not an else if, because we need to check for both possibilities
+            if is_part_of_sequence(hand, *tile)
+            {
+                let mut new_hand = hand.clone();
+
+                // remove and collect tiles in the sequence
+                let sequence_first = new_hand.remove(new_hand.iter().position(|hand_tile| tile.value.int_value() == hand_tile.value.int_value() && tile.suit == hand_tile.suit).unwrap());
+                let sequence_second = new_hand.remove(new_hand.iter().position(|hand_tile| tile.value.int_value() + 1 == hand_tile.value.int_value() && tile.suit == hand_tile.suit).unwrap());
+                let sequence_third = new_hand.remove(new_hand.iter().position(|hand_tile| tile.value.int_value() + 2 == hand_tile.value.int_value() && tile.suit == hand_tile.suit).unwrap());
+
+                let found_sequence = Set {
+                    set_type : SetType::Sequence,
+                    tiles : [sequence_first, sequence_second, sequence_third, INVALID_TILE],
+                    ron : false
+                };
+
+                let mut sets_vec_vec = Player::find_triplets_from_pair_hands(&mut new_hand);
+
+                for mut set_vec in sets_vec_vec {
+                    set_vec.push(found_sequence);
+                    ret_vec.push(set_vec);
+                }
+            }
+
+
+        }
+
+        return ret_vec;
+    }
+
+    fn num_pairs_sequences_and_triplets_or_quads(&self) -> (usize, usize, usize)
+    {
+        
+        return (0, 0, 0);
+    }
+
     fn hand_is_closed(&self) -> bool
     {
         if self.revealed_sets.len() == 0 
@@ -2481,4 +2674,263 @@ fn test_fu_open_pinfu()
 
 
 }
+
+
+
+
+
+
+
+
+
+
+#[test]
+fn test_callable_tiles()
+{
+    {
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+            ],
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        assert_eq!(player.callable_tiles.len(), 1);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Honor, value : SuitVal::West, red : true} ), true);
+
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+            ],
+            ..Player::default()
+        };
+    }
+    
+    {
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+            ],
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        assert_eq!(player.callable_tiles.len(), 9);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Honor, value : SuitVal::West, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Honor, value : SuitVal::East, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
+    }
+
+    {
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+            ],
+            tenpai : true,
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        assert_eq!(player.callable_tiles.len(), 9);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Honor, value : SuitVal::West, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Honor, value : SuitVal::East, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
+    }
+
+    {
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
+            ],
+            tenpai : true,
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        for (tile, calls) in &player.callable_tiles
+        {
+            println!("Callable is {}", tile)
+        }
+
+        assert_eq!(player.callable_tiles.len(), 9);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Eight, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Nine, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
+    }
+
+    // TODO: Test this hand for tenpai detection
+    {
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false },
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+            ],
+            tenpai : true,
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        println!("NEWTEST");
+        for (tile, calls) in &player.callable_tiles
+        {
+            println!("Callable is {}", tile)
+        }
+
+        assert_eq!(player.callable_tiles.len(), 11);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Eight, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Nine, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Sou, value : SuitVal::One, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Sou, value : SuitVal::Nine, red : true} ), true);
+    }
+
+    {
+        let sou_tile = Tile {
+            suit : Suit::Sou,
+            value : SuitVal::East,
+            red : true
+        };
+
+        let mut player = Player {
+            hand : vec![
+                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
+            ],
+            tenpai : true,
+            ..Player::default()
+        };
+
+        player.sort_hand();
+        player.update_callable_tiles();
+
+        println!("NEWTEST");
+        for (tile, calls) in &player.callable_tiles
+        {
+            println!("Callable is {}", tile)
+        }
+
+        let pair_call_only = Calls {
+            pair : true,
+            ..Calls::default()
+        };
+
+        let chii_call_only = Calls {
+            chii : true,
+            ..Calls::default()
+        };
+
+        let chii_pon_or_kan_call = Calls {
+            chii : true,
+            kan : true,
+            pon : true,
+            pair : false,
+        };
+
+        assert_eq!(player.callable_tiles.len(), 7);
+        
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Three, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Three, ..sou_tile }).or_default(), pair_call_only);
+
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Four, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Four, ..sou_tile}).or_default(), chii_call_only);
+
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Five, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Five, ..sou_tile }).or_default(), chii_call_only);
+
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Six, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Six, ..sou_tile}).or_default(), chii_call_only);
+
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Seven, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Seven, ..sou_tile}).or_default(), chii_call_only);
+
+        assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Eight, ..sou_tile} ), true);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Eight, ..sou_tile}).or_default(), chii_pon_or_kan_call);
+    }
+}
+
+
+
 

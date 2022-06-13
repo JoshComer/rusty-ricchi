@@ -9,11 +9,8 @@ extern crate strum_macros;
 
 
 // local modules
-pub mod game_structs;
-use game_structs::*;
-
-pub mod hand_scoring;
-use hand_scoring::*;
+pub mod mahjong;
+use mahjong::*;
 
 
 
@@ -23,8 +20,7 @@ use hand_scoring::*;
 
 
 
-
-fn main() {
+fn main(){
     let mut game = Game::default();
     game.play_game(2);
 
@@ -62,7 +58,6 @@ fn testing ()
 
     player.sort_hand();
     
-    assert_eq!(true, player.has_complete_hand());
     assert_eq!(false, player.has_dragon_or_wind_yakuhai(SuitVal::East));
 
     player.hand = vec![
