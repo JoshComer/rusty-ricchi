@@ -10,9 +10,11 @@ extern crate strum_macros;
 
 // local modules
 pub mod mahjong;
+use mahjong::player::*;
+use mahjong::tile::*;
 use mahjong::*;
 
-
+use utils::print_game_state;
 
 
 
