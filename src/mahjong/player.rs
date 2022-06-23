@@ -739,7 +739,6 @@ impl Player {
 
 
     /// updates the callable_tiles vec on player to enable chii's and pon's
-    /// ONLY UPDATES WITH PAIR WAITS IF PLAYER TENPAI IS SET TO TRUE
     pub fn update_callable_tiles(&mut self) -> ()
     {   // TODO: ??? Maybe make it so that we don't have to recalculate every single callable tile each time
         self.callable_tiles.clear();
@@ -748,7 +747,7 @@ impl Player {
         for set in &self.called_sets
         {
             match set.set.set_type {
-                SetType::Triplet => self.callable_tiles.entry(set.set.tiles[0]).or_default().kan = true,
+                SetType::Triplet => self.callable_tiles.entry(set.set.tiles[0]).or_default().added_kan = true,
                 _ => ()
             }
         }
@@ -766,7 +765,8 @@ impl Player {
             {
                 let mut entry = self.callable_tiles.entry(*tile).or_default();
                 entry.pon = true;
-                entry.kan = true;
+                entry.open_kan = true;
+                entry.closed_kan = true;
             }
         }
 
@@ -808,19 +808,19 @@ impl Player {
             }
         }
 
-
-        // if in tenpai, look for possible pairs
-        if self.tenpai
-        {
-            // add lonely tiles
-            for tile in &self.hand
-            {
-                if self.tiles_num_of(tile.suit, tile.value) == 1 && ! self.callable_tiles.contains_key(tile)
-                {
-                    self.callable_tiles.entry(*tile).or_default().ron = true;
-                }
-            }
-        }
+// remove this and add real ron detction in
+//        // if in tenpai, look for possible pairs
+//        if self.tenpai
+//        {
+//            // add lonely tiles
+//            for tile in &self.hand
+//            {
+//                if self.tiles_num_of(tile.suit, tile.value) == 1 && ! self.callable_tiles.contains_key(tile)
+//                {
+//                    self.callable_tiles.entry(*tile).or_default().ron = true;
+//                }
+//            }
+//        }
     }
 
 
@@ -1010,7 +1010,19 @@ impl Player
             },
         }
 
-        self.called_sets.push(called_set);
+        // Add the called set to player's revealed sets
+        // if added kan, change the already revealed triplet to a quad
+        if called_set.call_type == CallTypes::AddedKan
+        {
+            let mut triplet_set = self.called_sets.iter_mut().find(|set| set.set.set_type == SetType::Triplet && set.set.tiles[0] == discarded_tile).expect("Did not find revealed triplet for an added kan call");
+            triplet_set.set.set_type = SetType::Kan;
+            triplet_set.call_type = CallTypes::AddedKan;
+            triplet_set.set.tiles.push(discarded_tile);
+        }
+        else
+        {
+            self.called_sets.push(called_set);
+        }
     }
 
     pub fn choose_whether_to_call(self_index : usize, discarded_tile : Tile, game : &mut Game) -> Option<CalledSet>
@@ -1039,7 +1051,7 @@ impl Player
                     }
                 );
             }
-            if possible_calls.kan
+            if possible_calls.open_kan
             {
                 all_possible_calls.push(
                     CalledSet {
@@ -1050,6 +1062,18 @@ impl Player
                     call_type : CallTypes::OpenKan,
                     });
             }
+            if possible_calls.closed_kan && game.curr_player_idx == self_index
+            {
+                all_possible_calls.push(
+                    CalledSet {
+                        set : Set {
+                            set_type : SetType::Kan, // closed kan happens at discard
+                            tiles : vec![discarded_tile ; 4],
+                        },
+                    call_type : CallTypes::ClosedKan,
+                    });
+            }
+            // added kan is only possible during drawing. Not for calling on other player's discarded tiles
             if possible_calls.chii && (game.curr_player_idx + 1) % NUM_PLAYERS == self_index
             {
                 let mut chiiable_sets = get_callable_chii_combinations_with_tile(&game.players[self_index].hand, discarded_tile);
@@ -1307,7 +1331,61 @@ pub enum WinningMethod {
 }
 
 
+pub enum DiscardChoices {
+    DiscardTile(usize),
+    Win,
+    OpenClosedKan(Tile),
+    AddedKan(Tile),
+}
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// tests
 
 
 #[test]

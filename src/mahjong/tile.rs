@@ -500,7 +500,9 @@ impl PartialOrd for CallTypes {
 pub struct Calls {
     pub chii : bool,
     pub pon : bool,
-    pub kan : bool,
+    pub open_kan : bool, // call on discarded fourth tile with closed triplet in hand
+    pub added_kan : bool, // adding fourth drawn tile to open triplet
+    pub closed_kan : bool, // closed entirely
     pub ron : bool,
     pub ron_set : Set,
 }
@@ -508,13 +510,13 @@ pub struct Calls {
 impl Calls {
     pub fn any_field_true(&self) -> bool
     {
-        self.chii || self.pon || self.kan || self.ron
+        self.chii || self.pon || self.open_kan|| self.added_kan || self.closed_kan || self.ron
     }
 }
 
 impl Default for Calls {
     fn default() -> Self {
-        Calls { chii: false, pon: false, kan: false, ron : false, ron_set : Set::invalid_default()}
+        Calls { chii: false, pon: false, open_kan : false, added_kan : false, closed_kan : false, ron : false, ron_set : Set::invalid_default()}
     }
 }
 

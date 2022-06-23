@@ -364,7 +364,8 @@ impl Game {
             match discard_choice {
                 DiscardChoices::DiscardTile(idx) => discard_idx = idx,
                 DiscardChoices::Win => return None,
-                DiscardChoices::OpenClosedKan => unimplemented!(),
+                DiscardChoices::OpenClosedKan(kanned_tile) => unimplemented!(),
+                DiscardChoices::AddedKan(kanned_tile) => unimplemented!(),
             }
         }
         // computer picks which to discard
@@ -1297,9 +1298,11 @@ fn test_callable_tiles()
             ..Calls::default()
         };
 
-        let chii_pon_or_kan_call = Calls {
+        let chii_pon_or_hand_kans_call = Calls {
             chii : true,
-            kan : true,
+            open_kan : true,
+            closed_kan : true,
+            added_kan : false,
             pon : true,
             ron : false,
             ron_set : Set::invalid_default()
@@ -1323,14 +1326,7 @@ fn test_callable_tiles()
         assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Seven, ..sou_tile}).or_default(), chii_call_only);
 
         assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Eight, ..sou_tile} ), true);
-        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Eight, ..sou_tile}).or_default(), chii_pon_or_kan_call);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Eight, ..sou_tile}).or_default(), chii_pon_or_hand_kans_call);
     }
 }
 
-
-// TODO: This is the next thing
-pub enum DiscardChoices {
-    DiscardTile(usize),
-    Win,
-    OpenClosedKan,
-}

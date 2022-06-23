@@ -21,10 +21,10 @@ const SCREEN_WIDTH : usize = 150;
 /// Total output screen height
 const SCREEN_HEIGHT : usize = 45;
 
-/// number of lines used to output the top player's score and hand tiles
-const TOP_PLAYER_HAND_DISPLAY_LINES : usize = 4;
-/// number of lines used to output the current player's score and hand tiles. An extra line for putting numbers next to the tiles for discard time
-const CURR_PLAYER_HAND_DISPLAY_LINES : usize = 5;
+/// number of lines used to output the top player's score and hand tiles with a line for the active player indicator
+const TOP_PLAYER_HAND_DISPLAY_LINES : usize = 5;
+/// number of lines used to output the current player's score, hand tiles, and active indicator. An extra line for putting numbers next to the tiles for discard time
+const CURR_PLAYER_HAND_DISPLAY_LINES : usize = 6;
 
 const TILE_TOP : &str = "┌─┐";
 const TILE_MID : &str = "│ │";
@@ -46,13 +46,13 @@ const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
 const SCREEN_MID_WIDTH_THIRD : usize = SCREEN_MID_WIDTH / 3;
 const SCREEN_MID_WIDTH_LEFT : usize = SCREEN_MID_WIDTH / 2;
 
+const SCREEN_MID_WIDTH_THIRD_MINUS_ONE : usize = SCREEN_MID_WIDTH_THIRD - 1;
+
 const TILES_IN_DISCARD_ROW : usize = 7;
 
 const TEXT_OUTPUT_LINES : usize = ((SCREEN_HEIGHT - TOP_PLAYER_HAND_DISPLAY_LINES) - MIDDLE_HEIGHT) - CURR_PLAYER_HAND_DISPLAY_LINES;
 
-
-
-
+const ACTIVE_PLAYER_MARKER : &str = "ϕ";
 
 
 
@@ -199,7 +199,7 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         println!("{: ^SCREEN_WIDTH$}", opposite_hand[0]);
         println!("{: ^SCREEN_WIDTH$}", opposite_hand[1]);
         println!("{: ^SCREEN_WIDTH$}", opposite_hand[2]);
-
+        println!("{: ^SCREEN_WIDTH$}", if *opposite_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { "" });
 
         let empty_string = String::from("");
 
@@ -207,6 +207,13 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         let mut left_margin_iter = std::iter::repeat(&empty_string).take(MIDDLE_HEIGHT / 2).chain(
             std::iter::once(&left_wind_str).chain(
                 std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT / 2) + 1)
+            )
+        );
+
+
+        let mut left_active_iter = std::iter::repeat(empty_string.as_ref()).take(MIDDLE_HEIGHT / 2 ).chain(
+            std::iter::once(if game.players[game.curr_player_idx] == *left_player { ACTIVE_PLAYER_MARKER } else { "" }).chain(
+                std::iter::repeat(empty_string.as_ref())
             )
         );
 
@@ -219,6 +226,12 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
                         std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - left_hand_num_tile_chars) / 2) + 1)
                     )
                 )
+            )
+        );
+
+        let mut right_active_iter = std::iter::repeat(empty_string.as_ref()).take(MIDDLE_HEIGHT / 2 - 1).chain(
+            std::iter::once(if game.players[game.curr_player_idx] == *right_player { ACTIVE_PLAYER_MARKER } else { "" }).chain(
+                std::iter::repeat(empty_string.as_ref())
             )
         );
 
@@ -235,12 +248,11 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         );
 
 
-        let mut middle_discard_iter = std::iter::once(&empty_string).chain(
-            opposite_discard_strs.iter().chain(
-            std::iter::repeat(&empty_string).take( MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len() - 2).chain(
+        let mut middle_discard_iter = opposite_discard_strs.iter().chain(
+            std::iter::repeat(&empty_string).take( MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len()).chain(
                 curr_discard_strs.iter()
-            ).chain(std::iter::once(&empty_string))
-        ));
+            )
+        );
 
         let mut left_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - left_discard_strs.len()) / 2).chain(
             left_discard_strs.iter().chain(
@@ -268,7 +280,10 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         {
             println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}",
                 format!("{: ^MARGIN$}{: >TILE_SIDE_VIEW_LEN$}", left_margin_iter.next().unwrap_or(&empty_string), left_hand_iter.next().unwrap_or(&empty_string)),
-                format!("{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}", left_discard_iter.next().unwrap_or(&empty_string), middle_discard_iter.next().unwrap_or(&empty_string), right_discard_iter.next().unwrap_or(&empty_string)),
+                format!("{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}", 
+                    format!("{: <1}{: ^SCREEN_MID_WIDTH_THIRD_MINUS_ONE$}", left_active_iter.next().unwrap() ,left_discard_iter.next().unwrap_or(&empty_string)), 
+                    format!("{}", middle_discard_iter.next().unwrap_or(&empty_string)), 
+                    format!("{: ^SCREEN_MID_WIDTH_THIRD_MINUS_ONE$}{: >1}", right_discard_iter.next().unwrap_or(&empty_string), right_active_iter.next().unwrap())),
                 format!("{: <TILE_SIDE_VIEW_LEN$}{: ^MARGIN$}", right_hand_iter.next().unwrap_or(&empty_string), right_margin_iter.next().unwrap_or(&empty_string))
             );
         }
@@ -290,6 +305,7 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         let current_player_revealed_sets = &mahjong_tiles_strs(&current_player_revealed_sets, MARGIN_AND_TILE_WIDTH);
         let mut revealed_sets_iter = current_player_revealed_sets.iter();
 
+        println!("{: ^SCREEN_WIDTH$}", if *curr_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { "" });
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[0], revealed_sets_iter.next().unwrap_or(&empty_string));
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[1], revealed_sets_iter.next().unwrap_or(&empty_string));
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[2], revealed_sets_iter.next().unwrap_or(&empty_string));
