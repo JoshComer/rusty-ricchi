@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::hash_map;
 use std::hash::{Hash, Hasher};
 use std::{fmt, slice::Windows, usize::MAX, iter::empty, collections::HashMap, };
@@ -120,7 +121,7 @@ impl fmt::Display for SuitVal {
             SuitVal::Seven => write!(f, "7"),
             SuitVal::Eight => write!(f, "8"),
             SuitVal::Nine => write!(f, "9"),
-            
+
             SuitVal::North => write!(f, "North"),
             SuitVal::East => write!(f, "East"),
             SuitVal::South => write!(f, "South"),
@@ -154,7 +155,7 @@ impl fmt::Display for SuitVal {
 
 
 #[allow(dead_code)]
-#[derive(Clone, Copy, Eq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, Ord, PartialOrd)]
 pub struct Tile {
     pub suit : Suit,
     pub value : SuitVal,
@@ -173,7 +174,7 @@ impl Tile {
             None => None
         }
     }
-    
+
     pub fn get_next_num_tile(&self) -> Option<Tile>
     {
         match self.value.get_next_num() {
@@ -243,29 +244,34 @@ pub fn print_tiles(tiles : &[Tile], num_to_print : usize) -> ()
 
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
-//                        Set and SetType (a valid pairing of tiles) 
+//                        Set and SetType (a valid pairing of tiles)
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
 
 
-#[derive(EnumIter, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(EnumIter, Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum SetType {
     Pair,
     Sequence,
     Triplet,
-    ClosedKan,
-    OpenKan,
+    Kan,
 }
 
 // A completed tile set
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Set {
     pub set_type : SetType,
     pub tiles : Vec<Tile>,
-    pub ron : bool,
 }
 
 impl Set {
+    pub fn invalid_default() -> Self {
+        Set {
+            set_type: SetType::Kan,
+            tiles: vec![INVALID_TILE ; 4]
+        }
+    }
+
     pub fn has_honor_or_terminal(&self) -> bool
     {
         for tile in &self.tiles {
@@ -274,21 +280,160 @@ impl Set {
                 return true;
             }
         }
-    
+
         return false;
     }
 }
 
 
+#[derive(Clone, Eq, PartialEq)]
+pub struct CalledSet {
+    pub set : Set,
+    pub call_type : CallTypes,
+}
+
+pub fn find_possible_sets_with_tile(tile : Tile, hand_without_tile : &[Tile]) -> Vec<Set>
+{
+    let mut possible_sets : Vec<Set> = vec![];
+
+    // find possible sets with multiple of same tile
+    let num_this_tile = hand_without_tile.iter().filter(|hand_tile| **hand_tile == tile).count();
+
+    // add pair set
+    if num_this_tile >= 1
+    {
+        possible_sets.push(
+            Set {
+                set_type: SetType::Pair,
+                tiles: vec![tile ; 2]
+            },
+        );
+    }
+
+    // add triplet set
+    if num_this_tile >= 2
+    {
+        possible_sets.push(
+            Set {
+                set_type: SetType::Triplet,
+                tiles: vec![tile ; 3]
+            }
+        );
+    }
+
+    // add kan set
+    if num_this_tile >= 3
+    {
+        possible_sets.push(
+            Set {
+                set_type: SetType::Kan,
+                tiles: vec![tile ; 4]
+            }
+        );
+    }
+
+
+
+    // find possible sets with sequence of tile
+    if tile.suit != Suit::Honor && tile.value != SuitVal::Eight && tile.value != SuitVal::Nine
+    {   // since hand is sorted, and we're looking left to right, only check rightwards
+
+        let tiles_next = hand_without_tile.iter().find(
+            |hand_tile| **hand_tile == tile.get_next_num_tile().unwrap()
+        );
+
+        if let Some(tiles_next) = tiles_next
+        {
+            let tiles_next_next = hand_without_tile.iter().find(
+                |hand_tile| **hand_tile == tiles_next.get_next_num_tile().unwrap()
+            );
+
+            if let Some(tiles_next_next) = tiles_next_next
+            {
+                possible_sets.push(Set {
+                    tiles : vec![tile, *tiles_next, *tiles_next_next],
+                    set_type : SetType::Sequence
+                });
+            }
+        }
+    }
+
+    return possible_sets;
+}
 
 
 
 
+pub fn get_callable_chii_combinations_with_tile(hand : &[Tile], tile : Tile) -> Vec<CalledSet>
+{
+    let mut last_numbered_tile_idx = hand.iter().rposition(
+        |find_tile| find_tile.suit != Suit::Honor
+    );
+
+    let mut ret_vec : Vec<CalledSet> = vec![];
+
+    let chii_set : CalledSet = CalledSet { set:
+        Set { set_type: SetType::Sequence, tiles: vec![] }
+        , call_type: CallTypes::Chii };
 
 
 
+    let prev_tile = hand.iter().find(|find_tile|
+        **find_tile == tile.get_prev_num_tile().unwrap_or(INVALID_TILE)
+    );
+    let mut prev_prev_tile : Option<&Tile> = None;
 
+    if let Some(prev_tile) = prev_tile
+    {
+        prev_prev_tile = hand.iter().find(|find_tile|
+            **find_tile == prev_tile.get_prev_num_tile().unwrap_or(INVALID_TILE)
+        );
+    }
 
+    let next_tile = hand.iter().find(|find_tile|
+        **find_tile == tile.get_next_num_tile().unwrap_or(INVALID_TILE)
+    );
+    let mut next_next_tile : Option<&Tile> = None;
+
+    if let Some(next_tile) = next_tile
+    {
+        next_next_tile = hand.iter().find(|find_tile|
+            **find_tile == next_tile.get_next_num_tile().unwrap_or(INVALID_TILE)
+        );
+    }
+
+    if prev_prev_tile.is_some() && prev_tile.is_some()
+    {
+        ret_vec.push(CalledSet {
+            set : Set {
+                tiles : vec![*prev_prev_tile.unwrap(), *prev_tile.unwrap(), tile],
+                ..chii_set.set
+            },
+            ..chii_set});
+    }
+
+    if prev_tile.is_some() && next_tile.is_some()
+    {
+        ret_vec.push(CalledSet {
+            set : Set {
+                tiles : vec![*prev_tile.unwrap(), tile, *next_tile.unwrap()],
+                ..chii_set.set
+            },
+            ..chii_set});
+    }
+
+    if next_tile.is_some() && next_next_tile.is_some()
+    {
+        ret_vec.push(CalledSet {
+            set : Set {
+                tiles : vec![tile, *next_tile.unwrap(), *next_next_tile.unwrap()],
+                ..chii_set.set
+            },
+            ..chii_set});
+    }
+
+    return ret_vec;
+}
 
 
 
@@ -319,19 +464,35 @@ pub enum WaitType {
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum CallTypes {
     Tsumo,
-    Ron,
+    Ron(SetType),
     Pon,
-    Kan,
-    Chii(Tile, Tile),
+    OpenKan,
+    ClosedKan,
+    AddedKan,
+    Chii,
 }
 
 impl CallTypes {
     pub fn precedence(&self) -> usize {
         match self {
-            CallTypes::Tsumo | CallTypes::Ron => 2,
-            CallTypes::Pon | CallTypes::Kan => 1,
-            CallTypes::Chii(_,_) => 0,
+            CallTypes::Tsumo => 4,
+            CallTypes::AddedKan => 3, //TODO: If a player calls on kokushi musou, addedkan shouldn't have higher precedence
+            CallTypes::Ron(_) => 2,
+            CallTypes::Pon | CallTypes::OpenKan | CallTypes::ClosedKan => 1,
+            CallTypes::Chii => 0,
         }
+    }
+}
+
+impl Ord for CallTypes {
+    fn cmp(&self, other : &Self) -> Ordering {
+        self.precedence().cmp(&other.precedence())
+    }
+}
+
+impl PartialOrd for CallTypes {
+    fn partial_cmp(&self, other : &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -340,21 +501,120 @@ pub struct Calls {
     pub chii : bool,
     pub pon : bool,
     pub kan : bool,
-    /// TODO: Might need to replace Pair with Ron
-    pub pair : bool,
+    pub ron : bool,
+    pub ron_set : Set,
 }
 
 impl Calls {
     pub fn any_field_true(&self) -> bool
     {
-        self.chii || self.pon || self.kan || self.pair
+        self.chii || self.pon || self.kan || self.ron
     }
 }
 
 impl Default for Calls {
     fn default() -> Self {
-        Calls { chii: false, pon: false, kan: false, pair : false }
+        Calls { chii: false, pon: false, kan: false, ron : false, ron_set : Set::invalid_default()}
     }
 }
 
+/// Takes a hand in tenpai, and returns the tiles which would complete the hand and give it a win
+/// TODO: Make compatible with yakuman, and not just basic complete hands
+pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurations : Vec<Vec<Set>>) -> Vec<(Tile, Set)>
+{
+    let mut winning_tiles : Vec<(Tile, Set)> = vec![];
 
+    for winning_sets in winning_configurations
+    {
+        let mut found_tile_map = vec![false ; hand.len()];
+
+        // map tiles used in sets - to tiles in the hand, in order to find which tiles aren't used by the winning configurations
+        for set in winning_sets
+        {
+            for tile in &set.tiles
+            {
+                let mut idx = hand.iter().position(|hand_tile| *hand_tile == *tile).expect("Error: Hand did not have tile in winning set");
+
+                // since there can be duplicates of tiles, move past the ones we've already found from previous sets
+                while found_tile_map[idx] == true
+                {   idx += 1;   }
+
+                if hand[idx] != *tile // sanity check
+                {   panic!("Wtf?");  }
+
+                found_tile_map[idx] = true;
+            }
+        }
+
+        let first_unclaimed_tile_pos = found_tile_map.iter().position(|check_bool| *check_bool == false).expect("Error: No unclaimed tile in hand");
+
+        // TODO: this is because there's no way to get the position of a second element like the first above. Very ugly, might need to change.
+        let mut tmp_idx = first_unclaimed_tile_pos + 1;
+        let second_unclaimed_tile_pos = loop {
+            if tmp_idx >= found_tile_map.len() { break None; }
+            else if found_tile_map[tmp_idx] == false { break Some(tmp_idx); }
+            else { tmp_idx += 1; }
+        };
+
+
+        // Not waiting on pair, need to find which tile completes the set
+        if let Some(second_unclaimed_tile_pos) = second_unclaimed_tile_pos
+        {
+            let first_tile = hand[first_unclaimed_tile_pos];
+            let second_tile = hand[second_unclaimed_tile_pos];
+
+            // need a triplet to complete the hand
+            if first_tile == second_tile
+            {
+                winning_tiles.push((first_tile, Set {
+                    set_type : SetType::Triplet,
+                    tiles : vec![first_tile ; 3],
+                }));
+            }
+            // need a sequence to complete the hand
+            else
+            {
+                let prev_in_seq = if first_tile < second_tile { first_tile } else { second_tile };
+                let next_in_seq = if first_tile < second_tile { second_tile } else { first_tile };
+
+                let prev_prev_for_seq = prev_in_seq.get_prev_num_tile();
+                let next_next_for_seq = next_in_seq .get_next_num_tile();
+
+                if prev_prev_for_seq.is_none() && next_next_for_seq.is_none()
+                {
+                    panic!("Error: Winning tile was needed for sequence, but instead was not possible. Tiles are {} and {}", prev_in_seq, next_in_seq);
+                }
+
+                if let Some(prev_prev_for_seq) = prev_prev_for_seq
+                {
+                    winning_tiles.push((prev_prev_for_seq, Set {
+                        set_type : SetType::Sequence,
+                        tiles : vec![prev_prev_for_seq, prev_in_seq, next_in_seq]
+                    }));
+                }
+
+                if let Some(next_next_for_seq) = next_next_for_seq
+                {
+                    winning_tiles.push((next_next_for_seq, Set{
+                        set_type : SetType::Sequence,
+                        tiles : vec![prev_in_seq, next_in_seq, next_next_for_seq]
+                    }));
+                }
+            }
+        }
+        // waiting on pair
+        else
+        {
+            // push the tile not in any set to the winning tiles. We need a pair with that tile
+            let pair_tile = hand[first_unclaimed_tile_pos];
+
+            winning_tiles.push((pair_tile, Set {
+                set_type : SetType::Pair,
+                tiles : vec![pair_tile ; 2]
+            }));
+        }
+
+    }
+
+    return winning_tiles;
+}

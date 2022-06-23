@@ -4,6 +4,8 @@ use std::{fmt, slice::Windows, usize::MAX, iter::empty, collections::HashMap, };
 use int_enum::IntEnum;
 use num::pow;
 
+use rand::Rng;
+
 use crate::mahjong::tile::*;
 use crate::mahjong::Game;
 
@@ -19,8 +21,8 @@ const STARTING_POINTS : i32 = 25000;
 
 #[derive(Clone, Eq, PartialEq)]
 pub struct Player {
-    pub hand : Vec<Tile>, 
-    pub revealed_sets : Vec<Set>,
+    pub hand : Vec<Tile>,
+    pub called_sets : Vec<CalledSet>,
 
     /// Only the visible discards from this player
     /// Must be used with tiles_others_called in order to calculate furiten
@@ -28,16 +30,19 @@ pub struct Player {
 
     pub tiles_others_called : Vec<Tile>,
 
-    pub waiting_on_tiles : Vec<Tile>,
+    /// only used for display purposes. Not to determine if a tile can be called on or not
+    pub winning_call_tiles : Vec<Tile>,
+
     pub callable_tiles : HashMap<Tile, Calls>,
 
 
     pub last_picked_tile : Tile,
     pub seat_wind : SuitVal,
-    
+
     pub points : i32,
 
     pub tenpai : bool,
+    pub furiten : bool,
 
     pub is_human : bool,
 
@@ -71,7 +76,7 @@ impl <'a> Iterator for PlayerTileIter<'a> {
     fn next(&mut self) -> Option<Self::Item>
     {
         let total_player_tiles_len = self.player.hand.len() + self.player.revealed_sets_tiles_len();
-        
+
         if self.pos < self.player.hand.len()
         {
             self.pos += 1;
@@ -80,27 +85,27 @@ impl <'a> Iterator for PlayerTileIter<'a> {
         else if self.pos < total_player_tiles_len
         {
             self.pos += 1;
-            
+
             let mut revealed_pos : i32 = (self.pos - 1 - self.player.hand.len()) as i32;
 
-            for i in 0..self.player.revealed_sets.len(){
-                let set_len = match self.player.revealed_sets[i].set_type{
+            for i in 0..self.player.called_sets.len(){
+                let set_len = match self.player.called_sets[i].set.set_type{
                     SetType::Pair => 2,
                     SetType::Sequence | SetType::Triplet => 3,
-                    SetType::ClosedKan | SetType::OpenKan => 4,
+                    SetType::Kan => 4,
                 };
 
                 revealed_pos -= set_len;
                 if revealed_pos < 0
                 {
-                    return Some(self.player.revealed_sets[i].tiles[(revealed_pos + set_len) as usize]);
+                    return Some(self.player.called_sets[i].set.tiles[(revealed_pos + set_len) as usize]);
                 }
                 else if revealed_pos == 0
                 {
-                    return Some(self.player.revealed_sets[i].tiles[0]);
+                    return Some(self.player.called_sets[i].set.tiles[0]);
                 }
             }
-            
+
             return None;
         }
         else {
@@ -111,21 +116,22 @@ impl <'a> Iterator for PlayerTileIter<'a> {
 
 impl Default for Player {
     fn default() -> Self {
-        return Player { 
+        return Player {
             hand : vec![INVALID_TILE; PLAYER_HAND_SIZE],
             last_picked_tile : INVALID_TILE,
-            revealed_sets : Vec::new(),
+            called_sets : Vec::new(),
 
             discard_pile : Vec::with_capacity(70),
             tiles_others_called : Vec::with_capacity(20),
 
-            waiting_on_tiles : Vec::new(),
+            winning_call_tiles : Vec::new(),
             callable_tiles : HashMap::new(),
 
             seat_wind : SuitVal::East,
             points : STARTING_POINTS,
 
             tenpai : false,
+            furiten : false,
 
             riichi : false,
             double_riichi : false,
@@ -140,18 +146,60 @@ impl Default for Player {
 }
 
 impl Player {
-    fn revealed_sets_tiles_len(&self) -> usize 
+    pub fn dump_player_state(&self)
+    {
+        print!("Hand:");
+        for tile in &self.hand
+        {
+            print!("{},", tile);
+        }
+        print!("\n");
+
+        print!("Called Sets:");
+        for called_set in &self.called_sets
+        {
+            for tile in &called_set.set.tiles
+            {
+                print!("{},", tile);
+            }
+            print!("-");
+        }
+        print!("\n");
+
+        print!("Waiting on Tiles:");
+        for tile in &self.winning_call_tiles
+        {
+            print!("{},", tile);
+        }
+        print!("\n");
+
+        print!("Callable Tiles:");
+        for callable in &self.callable_tiles
+        {
+            println!("{}:{{{:?}}}", callable.0, callable.1);
+            let chiiable_sets = get_callable_chii_combinations_with_tile(&self.hand, *callable.0);
+            for called_set in chiiable_sets
+            {
+                for tile in &called_set.set.tiles
+                {
+                    print!("{},", tile);
+                }
+                print!("-");
+            }
+            println!("");
+        }
+        print!("\n");
+
+
+    }
+
+    fn revealed_sets_tiles_len(&self) -> usize
     {
         let mut len = 0;
 
-        for i in 0..self.revealed_sets.len()
+        for i in 0..self.called_sets.len()
         {
-            match self.revealed_sets[i].set_type
-            {
-                SetType::Pair => len += 2,
-                SetType::Sequence | SetType::Triplet => len += 3,
-                SetType::OpenKan | SetType::ClosedKan => len += 4
-            }
+            len += self.called_sets[i].set.tiles.len();
         }
 
         return len;
@@ -162,18 +210,18 @@ impl Player {
     // ---------------
     // chankan
     // houtei raoyui
-    
-    
+
+
     // discretionary
     // ---------------
-    
+
     // draw based
     // ----------------
     // haitei raoyue
     // menzenchin tsumohou
     // rinshan kaihou
-    
-    
+
+
     // honor based
     // --------------------
     // honitsu
@@ -181,13 +229,13 @@ impl Player {
     // shousangen
     // tanyao
     // yakuhai
-    
-    
+
+
     // riichi dependent
     // --------------------
     // ippatsu
-    
-    
+
+
     // Sequential
     // --------------------
     // Iipeikou
@@ -196,8 +244,8 @@ impl Player {
     // Ryanpeikou
     // Sanshoku
     // sanshoku doujun
-    
-    
+
+
     // Terminal Based
     // ---------------------
     // chantaiyao
@@ -205,8 +253,8 @@ impl Player {
     // junchan / Junchantaiyaochuu
     // nagashi mangan
     // tanyao
-    
-    
+
+
     // triplet based
     // -----------------------
     // sanankou
@@ -215,24 +263,24 @@ impl Player {
     // shousangen
     // toitoi
     // yakuhai
-    
-    
+
+
     // Suit based
     // -------------------------
     // honiisou
     // Chiniisou
-    
-    
+
+
     // Yakuman
     // -------------------------
-    
-    
+
+
     // Optional/Local yaku
     // --------------------------
     // renhou
     // daisharin
-    
-    
+
+
     // Other
     // -------------------------
 
@@ -424,17 +472,24 @@ impl Player {
         }
 
         let mut fu = 20;
-        
+
         // add fu for revealed sets (which include closed kans)
-        for set in &self.revealed_sets {
-            let mut added_fu =  match set.set_type {
-                                        SetType::ClosedKan => 16,        
-                                        SetType::OpenKan => 8,
-                                        SetType::Triplet => 2,
+        for set in &self.called_sets {
+            let mut added_fu =  match set.call_type {
+                                        CallTypes::ClosedKan => 16,
+                                        CallTypes::OpenKan => 8,
+                                        CallTypes::Pon => 2,
+                                        CallTypes::Ron(set_type) => {
+                                            match set_type {
+                                                SetType::Kan => 8,
+                                                SetType::Triplet => 2,
+                                                _ => 0
+                                            }
+                                        }
                                         _ => 0,
                                     };
 
-            if set.has_honor_or_terminal()
+            if set.set.has_honor_or_terminal()
             {
                 added_fu *= 2;
             }
@@ -481,7 +536,7 @@ impl Player {
         // add fu for a pair of honor tiles which would count as yaku
         let winning_pair = self.get_one_pair();
         if let None = winning_pair
-        {          
+        {
             // In riichi mahjong there is ALWAYS a winning pair. Return 0 fu since the hand isn't a winning hand
             return 0;
         }
@@ -521,7 +576,7 @@ impl Player {
         // add fu for ron or tsumo
         fu +=   match self.ron_or_tsumo {
                     (WinningMethod::NotWonYet, _) => 0,
-                    (WinningMethod::Ron, _) => { 
+                    (WinningMethod::Ron, _) => {
                         if self.hand_is_closed()
                         { 10 }
                         else
@@ -590,7 +645,7 @@ impl Player {
         }
         else
         {
-            let mut basic_points = self.hand_fu(game, true) * pow(2, 2 + han); 
+            let mut basic_points = self.hand_fu(game, true) * pow(2, 2 + han);
 
             // if han and fu reach over 2000 points, it's considered a 2000 point mangan
             if basic_points > 2000
@@ -690,10 +745,10 @@ impl Player {
         self.callable_tiles.clear();
 
         // update with upgrading open triplets to open kans
-        for set in &self.revealed_sets
+        for set in &self.called_sets
         {
-            match set.set_type {
-                SetType::Triplet => self.callable_tiles.entry(set.tiles[0]).or_default().kan = true,
+            match set.set.set_type {
+                SetType::Triplet => self.callable_tiles.entry(set.set.tiles[0]).or_default().kan = true,
                 _ => ()
             }
         }
@@ -715,7 +770,6 @@ impl Player {
             }
         }
 
-        // the commented code should do the same thing as the lines below. No idea why it doesn't work sometimes though
         let mut last_numbered_tile_idx = self.hand.iter().rposition(
                 |find_tile| find_tile.suit != Suit::Honor
             );
@@ -739,7 +793,7 @@ impl Player {
                     // add tiles to complete the sequence from 2 tiles to 3 if there's a tile in this hand behind the current one
                     if let Some(prev_tile_in_sequence) = prev_tile_in_sequence
                     {
-                        
+
                         if let Some(third_tile_behind) = prev_tile_in_sequence.get_prev_num_tile()
                         {
                             self.callable_tiles.entry(third_tile_behind).or_default().chii = true;
@@ -763,7 +817,7 @@ impl Player {
             {
                 if self.tiles_num_of(tile.suit, tile.value) == 1 && ! self.callable_tiles.contains_key(tile)
                 {
-                    self.callable_tiles.entry(*tile).or_default().pair = true;
+                    self.callable_tiles.entry(*tile).or_default().ron = true;
                 }
             }
         }
@@ -772,111 +826,194 @@ impl Player {
 
     // a "complete hand" still needs a yakuhai to be considered a winning hand
     // and not all winning hands are "complete" hands.
-    pub fn check_complete_hand_and_update_waits(&self) -> bool 
+    pub fn check_complete_hand_and_update_waits(&mut self) -> bool
     {
-        let (tile_vec, mut hands_vec) = self.get_hands_with_pairs();
-
-        let mut vec_vec_of_sets : Vec<Vec<Set>> = vec![];
-
-        for hand in &mut hands_vec
+        // needs 5 sets. 4 sequences, triplets, or kans, and 1 pair
+        if self.called_sets.len() == 5
         {
-            for inner_hand in Player::find_triplets_from_pair_hands(hand)
+            return true;
+        }
+
+        // Sometimes there's more than 1 possible hand close to winning
+        // If there's more than 1 Vec<Set> returned though, they're gauranteed to be
+        // the same amount of steps away from winning
+        let most_hand_sets : Vec<Vec<Set>> = self.find_best_hands(&self.hand[..]);
+
+        if most_hand_sets.len() == 0
+        {
+            self.tenpai = false;
+            return false;
+        }
+        else
+        {
+            let num_sets_in_hand = most_hand_sets[0].len();
+
+            if num_sets_in_hand + self.called_sets.len() == 5
             {
-                vec_vec_of_sets.push(inner_hand);
+                return true;
+            }
+            else if num_sets_in_hand + self.called_sets.len() == 4
+            {
+                self.set_tenpai_true_and_update_winning_tiles(most_hand_sets);
+                return false;
+            }
+            else {
+                return false;
             }
         }
 
-        let mut max : usize = 0;
-        for vec_set in &vec_vec_of_sets
-        {
-            let local_max = vec_set.len();
-            if local_max > max
-            {
-                max = local_max;
-            }
-        }
-
-        // remove the sets which 
-        vec_vec_of_sets.retain(|vec_set| vec_set.len() == max);
-
-        println!("Len of vec_vec_of_sets is {}", vec_vec_of_sets.len());
-        for vec in vec_vec_of_sets{
-            print!("..next has a triplet num of {}..", vec.len());
-        }
-        print!("\n");
-
-//        let (pairs, sequences, triplets_and_quads) = self.num_pairs_and_triplets();
-
-        false
     }
 }
 
 impl Player
 {
-    /// Takes the called tile along with the type of call and moves them to the players revealed sets
-    pub fn open_tiles_with_call(&mut self, called_tile : Tile, call : CallTypes)
+    /// One of the most important functions. Determines the best possible groupings of tiles
+    /// within a players hands. This function only returns hands which are the smallest number
+    /// of "Sets" or tile groups away from winning. There can be multiple hands the same steps
+    /// away though (hence the Vec<Vec<>>).
+    fn find_best_hands(&self, remaining_tiles : &[Tile]) -> Vec<Vec<Set>>
     {
-        let mut made_set = Set {
-            set_type : SetType::Pair,
-            tiles : Vec::with_capacity(4),
-            ron : (call == CallTypes::Ron)
-        };
+        let mut best_hands : Vec<Vec<Set>> = vec![];
 
-        made_set.tiles.push(called_tile);
+        for i in 0..remaining_tiles.len()
+        {
+            // try to find a set match for this tile. If there is one, then recurse further
+            // if not, then just iterate to the next option
+            let total_hand = &remaining_tiles[i..]; // TODO: Remove name from this variable, and revamp how these variables are used
+            let this_tile = remaining_tiles[i];
+            let hand_without_this = &remaining_tiles[(i+1)..];
 
-        let made_set = match call {
-            CallTypes::Tsumo | CallTypes::Ron => unimplemented!(),
-            CallTypes::Pon => {
-                // TODO: Make sure that if player has 3 of same tiles and a red one, but calls pon instead of kan that the red is taken into the call
-                for i in 0..2{
-                    let removed_tile = self.hand.remove(
-                        self.hand.iter().position(
-                            |find_tile| *find_tile == called_tile
-                        ).unwrap()
-                    );
+            let sets_possible_with_this_tile = find_possible_sets_with_tile(this_tile, hand_without_this);
 
-                    made_set.tiles.push(removed_tile);
-                }
-
-                made_set
+            if sets_possible_with_this_tile.len() == 0
+            {
+                continue;
             }
-            | CallTypes::Kan => {
-                for i in 0..3{
-                    let removed_tile = self.hand.remove(
-                        self.hand.iter().position(
-                            |find_tile| *find_tile == called_tile
-                        ).unwrap()
-                    );
+            else {
 
-                    made_set.tiles.push(removed_tile);
+                for set in &sets_possible_with_this_tile
+                {
+                    let mut hand_with_set_tiles_removed : Vec<Tile> = total_hand.to_vec();
+
+                    // remove set tiles from hand
+                    for tile in &set.tiles {
+                        let pos = hand_with_set_tiles_removed.iter().position(
+                            |check_tile| *check_tile == *tile
+                        ).expect("Attempted to remove a tile from a set which should be in the hand");
+
+                        hand_with_set_tiles_removed.remove(pos);
+                    }
+
+                    let mut a_set_removed_best_hands = self.find_best_hands(&hand_with_set_tiles_removed);
+
+                    if a_set_removed_best_hands.len() > 0
+                    {
+                        for mut hand in a_set_removed_best_hands
+                        {
+                            hand.push(set.clone());
+
+                            // remove hands which contain more than one pair TODO: Check for 7 pairs yakuman
+                            if hand.iter().filter(|set| set.set_type == SetType::Pair).count() <= 1
+                            {
+                                best_hands.push(hand);
+                            }
+                        }
+                    }
+                    else {
+                        best_hands.push(vec![set.clone()]);
+                    }
                 }
-
-                made_set
-            },
-            CallTypes::Chii(tile_from_hand_1, tile_from_hand_2) => {
-                    self.hand.remove(
-                        self.hand.iter().position(
-                            |find_tile| *find_tile == tile_from_hand_1
-                        ).unwrap()
-                    );
-
-                    self.hand.remove(
-                        self.hand.iter().position(
-                            |find_tile| *find_tile == tile_from_hand_2
-                        ).unwrap()
-                    );
-
-                    made_set.tiles.push(tile_from_hand_1);
-                    made_set.tiles.push(tile_from_hand_2);
-
-                    made_set
             }
-        };
+        }
 
-        self.revealed_sets.push(made_set);
+        // remove hands if they have less possible sets than the maximum
+        let mut max_hand_len = 0;
+        for hand in &best_hands {
+            if hand.len() > max_hand_len
+            {
+                max_hand_len = hand.len();
+            }
+        }
+
+        best_hands.retain(|sets| sets.len() == max_hand_len);
+
+        return best_hands;
     }
 
-    pub fn choose_whether_to_call(self_index : usize, discarded_tile : Tile, game : &mut Game) -> Option<CallTypes>
+    fn check_furiten(&self) -> ()
+    {
+        unimplemented!();
+    }
+
+    pub fn set_tenpai_true_and_update_winning_tiles(&mut self, best_hands : Vec<Vec<Set>>) -> ()
+    {
+        self.tenpai = true;
+//         self.furiten = self.check_furiten();
+        // TODO: Prompt for riichi or double riichi
+
+        let winning_calls = get_winning_tiles_from_tenpai_hand(&self.hand, best_hands);
+
+        // TODO: Remove this awful logic, and only append new winning tiles probably. Might have to leave it though, idk
+        self.winning_call_tiles.clear();
+
+        for (tile, set) in winning_calls
+        {
+            self.winning_call_tiles.push(tile);
+
+            let entry = self.callable_tiles.entry(tile).or_default();
+            entry.ron = true;
+            entry.ron_set = set;
+        }
+    }
+
+    /// Takes the call made, and actually removes the tiles from players hand and moves them to the players revealed sets
+    pub fn open_tiles_with_call(&mut self, discarded_tile : Tile, called_set : CalledSet)
+    {
+        // TODO: Sometimes the hand might have tiles left in it that are left
+        // remove tiles from hand
+        match called_set.set.set_type {
+            SetType::Kan =>
+                self.hand.retain(|hand_tile| *hand_tile != called_set.set.tiles[0]),
+            SetType::Triplet => {
+                for i in 0..2 {
+                    let remove_idx = self.hand.iter().position(
+                        |hand_tile| *hand_tile == discarded_tile
+                    ).unwrap();
+
+                    self.hand.remove(remove_idx);
+                }
+            },
+            SetType::Pair => {
+                    let remove_idx = self.hand.iter().position(
+                        |hand_tile| *hand_tile == discarded_tile
+                    ).unwrap();
+
+                    self.hand.remove(remove_idx);
+            }
+            SetType::Sequence => {
+                // Remove tiles from sequence. One tile will be missing, and We'll just skip it
+                for i in 0..3
+                {
+                    let tile_to_remove = called_set.set.tiles[i];
+                    let pos = self.hand.iter().position(
+                        |hand_tile| *hand_tile == tile_to_remove
+                    );
+
+                    if let Some(pos) = pos
+                    {   // guards against consuming a tile from the hand if you call chii on a tile you already have in your hand
+                        if self.hand[pos] != discarded_tile
+                        {
+                            self.hand.remove(pos);
+                        }
+                    }
+                }
+            },
+        }
+
+        self.called_sets.push(called_set);
+    }
+
+    pub fn choose_whether_to_call(self_index : usize, discarded_tile : Tile, game : &mut Game) -> Option<CalledSet>
     {
         println!("\n\n\n\n\n\n\n\ncalling choice called for {} on {}\n\n\n\n\n\n\n\n", self_index, discarded_tile);
 
@@ -887,39 +1024,50 @@ impl Player
         }
         else
         {
-            let mut all_possible_calls : Vec<Set> = vec![];
+            let mut all_possible_calls : Vec<CalledSet> = vec![];
 
             let possible_calls = game.players[self_index].callable_tiles.entry(discarded_tile).or_default();
 
             if possible_calls.pon
             {
                 all_possible_calls.push(
-                    Set {
-                        set_type : SetType::Triplet,
-                        tiles : vec![discarded_tile ; 3],
-                        ron : false,
+                        CalledSet { set : Set {
+                            set_type : SetType::Triplet,
+                            tiles : vec![discarded_tile ; 3],
+                        },
+                        call_type : CallTypes::Pon,
                     }
                 );
             }
             if possible_calls.kan
             {
                 all_possible_calls.push(
-                    Set {
-                        set_type : SetType::OpenKan, // closed kan happens at discard
-                        tiles : vec![discarded_tile ; 4],
-                        ron : false,
-                    }
-                );
+                    CalledSet {
+                        set : Set {
+                            set_type : SetType::Kan, // closed kan happens at discard
+                            tiles : vec![discarded_tile ; 4],
+                        },
+                    call_type : CallTypes::OpenKan,
+                    });
             }
-            if possible_calls.chii
+            if possible_calls.chii && (game.curr_player_idx + 1) % NUM_PLAYERS == self_index
             {
-                let thing = get_chii_combinations_with_tile(&game.players[self_index].hand, discarded_tile);
-                let thing = 0; // TODO: FINISH THIS
+                let mut chiiable_sets = get_callable_chii_combinations_with_tile(&game.players[self_index].hand, discarded_tile);
+                all_possible_calls.append(&mut chiiable_sets);
+            }
+            if possible_calls.ron
+            {
+                all_possible_calls.push(
+                    CalledSet {
+                        set : possible_calls.ron_set.clone(),
+                        call_type: CallTypes::Ron(possible_calls.ron_set.set_type)
+                    });
             }
 
             tui_output::output_player_perspective(game, self_index);
-            tui_output::get_player_call_choice(game, self_index, discarded_tile, &mut all_possible_calls);
-            None
+            let call_made = tui_output::get_player_call_choice(game, self_index, discarded_tile, &mut all_possible_calls);
+
+            return call_made;
         }
     }
 
@@ -930,7 +1078,7 @@ impl Player
     /// 1. `Vec<Tile>` : A vector of tiles which were found as pairs in the hand
     /// 2. `Vec<Vec<Tile>>` : A vector containing hands associated with each of the pairs. If the `Vec<Tile>` from 1 above
     /// from above contained a 4 of man, then the `Vec<Vec<Tile>>` here would contain all other tiles from
-    /// the passed in hand with 2 of the 4 man tiles removed 
+    /// the passed in hand with 2 of the 4 man tiles removed
     fn get_hands_with_pairs(&self) -> (Vec<Tile>, Vec<Vec<Tile>>)
     {
         let mut pairs : Vec<Tile> = vec![];
@@ -938,11 +1086,11 @@ impl Player
 
         // possible early return
         // if a tile pair has been tsumo'd or ron'd then the winning hand contains that pair
-        for set in &self.revealed_sets
+        for called_set in &self.called_sets
         {
-            match set.set_type {
+            match called_set.set.set_type {
                 SetType::Pair => {
-                    pairs.push(set.tiles[0]);
+                    pairs.push(called_set.set.tiles[0]);
                     hands.push(self.hand.clone());
                     return (pairs, hands);
                 },
@@ -1001,7 +1149,6 @@ impl Player
                 let found_triplet = Set {
                     set_type : SetType::Triplet,
                     tiles : vec![ *tile ; 3 ],
-                    ron : false
                 };
 
                 let mut new_hand = hand.clone();
@@ -1033,7 +1180,6 @@ impl Player
                 let found_sequence = Set {
                     set_type : SetType::Sequence,
                     tiles : vec![sequence_first, sequence_second, sequence_third],
-                    ron : false
                 };
 
                 let mut sets_vec_vec = Player::find_triplets_from_pair_hands(&mut new_hand);
@@ -1052,24 +1198,30 @@ impl Player
 
     fn num_pairs_sequences_and_triplets_or_quads(&self) -> (usize, usize, usize)
     {
-        
+
         return (0, 0, 0);
     }
 
     fn hand_is_closed(&self) -> bool
     {
-        if self.revealed_sets.len() == 0 
+        if self.called_sets.len() == 0
         {
             return true;
         }
         else
         {
-            for set in &self.revealed_sets
+            for set in &self.called_sets
             {
                 // hand is still closed if it's only closed kans, or a set was created from ron
-                if set.set_type != SetType::ClosedKan && set.ron == false
+                if set.call_type != CallTypes::ClosedKan
                 {
-                    return false;
+                    if let CallTypes::Ron(_) = set.call_type
+                    {
+                        continue; // really hackish, but there's no way to negate an if let statement
+                    }
+                    else {
+                        return false;
+                    }
                 }
             }
 
@@ -1084,16 +1236,14 @@ impl Player
         let mut ret_set = Set {
             set_type : SetType::Pair,
             tiles : Vec::with_capacity(2),
-            ron : false
         };
 
         // look for a pair in revealed sets
-        for set in &self.revealed_sets
+        for revealed_set in &self.called_sets
         {
-            if set.set_type == SetType::Pair
+            if revealed_set.set.set_type == SetType::Pair
             {
-                ret_set.tiles = set.tiles.clone();
-                ret_set.ron = set.ron;
+                ret_set.tiles = revealed_set.set.tiles.clone();
                 return Some(ret_set);
             }
         }
@@ -1143,7 +1293,7 @@ impl Player
 
         return None;
     }
-    
+
 
 
 }
@@ -1160,7 +1310,182 @@ pub enum WinningMethod {
 
 
 
-fn get_chii_combinations_with_tile(hand : &Vec<Tile>, tile : Tile)
+#[test]
+fn test_check_complete_hand_and_update_waits()
 {
+    fn check_hand_wins(hand : Vec<Tile>) -> bool
+    {
+        let mut player = Player {
+            hand,
+            ..Player::default()
+        };
+        player.sort_hand();
+
+        let player_can_win = player.check_complete_hand_and_update_waits();
+
+        return player_can_win;
+    }
+
+    fn assert_hand_wins(hand : Vec<Tile>) -> ()
+    {
+        assert_eq!(true, check_hand_wins(hand))
+    }
+
+    fn assert_hand_loses(hand : Vec<Tile>) -> ()
+    {
+        assert_eq!(false, check_hand_wins(hand))
+    }
+
+    assert_hand_wins(vec![Tile { suit : Suit::Honor, value : SuitVal::East, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::East, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::West, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false},
+                Tile { suit : Suit::Honor, value : SuitVal::Red, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false},]);
+
+
+    assert_hand_wins(vec![Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},]);
+
+    assert_hand_wins(vec![Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
+                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},]);
+
+
+
+
+    fn gen_random_suit(honors_available : bool) -> Suit
+    {
+        let suit_range = if honors_available { 0..4 } else { 0..3 };
+
+        match rand::thread_rng().gen_range(suit_range) {
+            0 => Suit::Man,
+            1 => Suit::Pin,
+            2 => Suit::Sou,
+            3 => Suit::Honor,
+            _ => panic!()
+        }
+    }
+
+    fn get_random_pair_triplet_or_kan(num_tiles : usize) -> Set
+    {
+        let set_type = gen_random_suit(true);
+        let mut set_value;
+
+        if set_type == Suit::Honor
+        {
+            set_value = match rand::thread_rng().gen_range(0..7) {
+                0 => SuitVal::East, 1 => SuitVal::West, 2 => SuitVal::South, 3 => SuitVal::North,
+                4 => SuitVal::Red, 5 => SuitVal::Green, 6 => SuitVal::White, _ => panic!()
+            };
+        }
+        else {
+            set_value = match rand::thread_rng().gen_range(1..10) {
+                1 => SuitVal::One, 2 => SuitVal::Two, 3 => SuitVal::Three, 4 => SuitVal::Four,
+                5 => SuitVal::Five, 6 => SuitVal::Six, 7 => SuitVal::Seven, 8 => SuitVal::Eight, 9 => SuitVal::Nine,
+                _ => panic!()
+            };
+        }
+
+        Set {
+            set_type : if num_tiles == 2 { SetType::Pair } else if num_tiles == 3 { SetType::Triplet } else { SetType::Kan },
+            tiles: vec![ Tile { suit : set_type, value : set_value, red : false } ; num_tiles]
+        }
+    }
+
+    fn get_random_sequence() -> Set
+    {
+        let set_type = gen_random_suit(false);
+
+        let number = match rand::thread_rng().gen_range(1..8) {
+            1 => SuitVal::One, 2 => SuitVal::Two, 3 => SuitVal::Three, 4 => SuitVal::Four,
+            5 => SuitVal::Five, 6 => SuitVal::Six, 7 => SuitVal::Seven, _ => panic!()
+        };
+
+        let first_tile = Tile {
+            suit : set_type,
+            value : number,
+            red : false,
+        };
+
+        let second_tile = Tile {
+            ..first_tile.get_next_num_tile().unwrap()
+        };
+
+        let third_tile = Tile {
+            ..second_tile.get_next_num_tile().unwrap()
+        };
+
+        return Set { set_type: SetType::Sequence , tiles: vec![first_tile, second_tile, third_tile] };
+    }
+
+    const NUM_RAND_TESTS : usize = 100;
+
+    // TODO: Add called sets in revealed sets, tenpai hand testing, and incorrect hand testing
+    for i in 0..NUM_RAND_TESTS
+    {
+        let mut sets : Vec<Set> = vec![];
+
+        for i in 0..5
+        {
+            let new_set = match rand::thread_rng().gen_range(0..3) {
+                0 => get_random_sequence(),
+                1 => get_random_pair_triplet_or_kan(3),
+                2 => get_random_pair_triplet_or_kan(4),
+                _ => panic!()
+            };
+
+            sets.push(new_set);
+        }
+
+        sets.push(get_random_pair_triplet_or_kan(2));
+
+        let mut hand : Vec<Tile> = vec![];
+
+        for set in sets {
+            for tile in set.tiles {
+                hand.push(tile);
+            }
+        }
+
+        println!("hand is ");
+        for tile in &hand {
+            print!("{},", tile);
+        }
+        print!("\n");
+        check_hand_wins(hand);
+    }
+
 
 }

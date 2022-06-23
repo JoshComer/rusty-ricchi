@@ -1,9 +1,12 @@
+
+
+use std::io::Read;
+
 use crate::mahjong::*;
 
 
 
 
-const DEBUG_OUTPUT : bool = false;
 
 
 
@@ -27,7 +30,9 @@ const TILE_TOP : &str = "┌─┐";
 const TILE_MID : &str = "│ │";
 const TILE_BOT : &str = "└─┘";
 /// the length of either TILE_TOP, TILE_MID, or TILE_BOT
-const TILE_LEN : usize = 3;
+const TILE_SIDE_VIEW_LEN : usize = 3;
+const TILE_FRONT_VIEW_LEN : usize = 4;
+const TILE_HEIGHT : usize = 3;
 
 /// Number of lines in between the top player and bottom player hands.
 /// This includes spacing between top and bottom player hands, discard piles, and the hands of players to the
@@ -35,7 +40,7 @@ const TILE_LEN : usize = 3;
 const MIDDLE_HEIGHT : usize = 26;
 /// Margins to the left and right of the TOP_PLAYER_HAND_DISPLAY_LINES, CURR_PLAYER_HAND_DISPLAY_LINES, and MIDDLE_HEIGHT output zones
 const MARGIN : usize = 22;
-const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_LEN;
+const MARGIN_AND_TILE_WIDTH : usize = MARGIN + TILE_SIDE_VIEW_LEN;
 
 const SCREEN_MID_WIDTH : usize = SCREEN_WIDTH - (MARGIN_AND_TILE_WIDTH * 2);
 const SCREEN_MID_WIDTH_THIRD : usize = SCREEN_MID_WIDTH / 3;
@@ -96,7 +101,7 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
             Suit::Honor => "", // don't print suit for honor, just print two chars
         });
 
-        char2.push_str(match tile.value {        
+        char2.push_str(match tile.value {
             SuitVal::One => "1",
             SuitVal::Two => "2",
             SuitVal::Three => "3",
@@ -106,7 +111,7 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
             SuitVal::Seven => "7",
             SuitVal::Eight => "8",
             SuitVal::Nine => "9",
-            
+
             SuitVal::East => "Ea",
             SuitVal::South => "So",
             SuitVal::West => "We",
@@ -188,7 +193,7 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
 
 
         let opposite_hand = &mahjong_tiles_strs(&vec![INVALID_TILE ; opposite_player.hand.len()], 1000);
-        
+
         // print top player
         println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", opposite_player.points, opposite_player.seat_wind) );
         println!("{: ^SCREEN_WIDTH$}", opposite_hand[0]);
@@ -212,9 +217,9 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
                     std::iter::once(TILE_BOT).chain(
 //                        std::iter::once(&empty_string)
                         std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - left_hand_num_tile_chars) / 2) + 1)
-                    ) 
+                    )
                 )
-            )    
+            )
         );
 
         let mut right_hand_num_tile_chars = 2 + right_player.hand.len(); // 2 added, because the bottom tile has 2 chars, but every other tile is just represented by the top char
@@ -224,9 +229,9 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
                     std::iter::once(TILE_BOT).chain(
 //                        std::iter::once(&empty_string)
                         std::iter::repeat(empty_string.as_ref()).take((((MIDDLE_HEIGHT) - right_hand_num_tile_chars) / 2) + 1)
-                    ) 
+                    )
                 )
-            )    
+            )
         );
 
 
@@ -261,10 +266,10 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
 //        let mut right_discard_iter = right_discard_strs.iter();
         for i in 0..MIDDLE_HEIGHT
         {
-            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", 
-                format!("{: ^MARGIN$}{: >TILE_LEN$}", left_margin_iter.next().unwrap_or(&empty_string), left_hand_iter.next().unwrap_or(&empty_string)), 
+            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}",
+                format!("{: ^MARGIN$}{: >TILE_SIDE_VIEW_LEN$}", left_margin_iter.next().unwrap_or(&empty_string), left_hand_iter.next().unwrap_or(&empty_string)),
                 format!("{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}{: ^SCREEN_MID_WIDTH_THIRD$}", left_discard_iter.next().unwrap_or(&empty_string), middle_discard_iter.next().unwrap_or(&empty_string), right_discard_iter.next().unwrap_or(&empty_string)),
-                format!("{: <TILE_LEN$}{: ^MARGIN$}", right_hand_iter.next().unwrap_or(&empty_string), right_margin_iter.next().unwrap_or(&empty_string))
+                format!("{: <TILE_SIDE_VIEW_LEN$}{: ^MARGIN$}", right_hand_iter.next().unwrap_or(&empty_string), right_margin_iter.next().unwrap_or(&empty_string))
             );
         }
 
@@ -272,73 +277,196 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
 
         // print current player
         let current_hand = &mahjong_tiles_strs(&curr_player.hand, 1000);
+        let mut current_player_revealed_sets = vec![];
 
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[0], " ");
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[1], " ");
-        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[2], " ");
-        
+        for set in &curr_player.called_sets {
+            for item in &set.set.tiles {
+                current_player_revealed_sets.push(item.clone());
+            }
+
+            current_player_revealed_sets.push(INVALID_TILE);
+        }
+
+        let current_player_revealed_sets = &mahjong_tiles_strs(&current_player_revealed_sets, MARGIN_AND_TILE_WIDTH);
+        let mut revealed_sets_iter = current_player_revealed_sets.iter();
+
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[0], revealed_sets_iter.next().unwrap_or(&empty_string));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[1], revealed_sets_iter.next().unwrap_or(&empty_string));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[2], revealed_sets_iter.next().unwrap_or(&empty_string));
+
         if player_idx == game.curr_player_idx
         {
             let mut numbers = String::from("");
             for i in 1..(curr_player.hand.len() + 1) {    numbers.push_str(&format!(" {: <2} ", i));    }
-            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", numbers, " ");
+            println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", numbers, revealed_sets_iter.next().unwrap_or(&empty_string));
         }
-        
-        println!("{: ^SCREEN_WIDTH$}", format!("pts:{} wind:{}", curr_player.points, curr_player.seat_wind) );
+
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", format!("pts:{} wind:{}", curr_player.points, curr_player.seat_wind), revealed_sets_iter.next().unwrap_or(&empty_string));
 
         // println!("{}", " ".repeat(SCREEN_WIDTH));
         // println!("{}", " ".repeat(SCREEN_WIDTH));
         // println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
-        println!("{}", " ".repeat(SCREEN_WIDTH));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", " ", revealed_sets_iter.next().unwrap_or(&empty_string));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", " ", revealed_sets_iter.next().unwrap_or(&empty_string));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", " ", revealed_sets_iter.next().unwrap_or(&empty_string));
+        println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", " ", revealed_sets_iter.next().unwrap_or(&empty_string));
         println!("{}", " ".repeat(SCREEN_WIDTH));
 }
 
 
-
-pub fn get_player_discard_idx(game : &Game, player_idx : usize) -> usize
+/// mutability of game is only for debug
+pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_win : bool, player_can_close_kan : bool) -> DiscardChoices
 {
+            game.dump_game_state();
             output_player_perspective(game, player_idx);
 
+            let mut input = String::from("");
 
-            //// TODO: Put extra text for if you can win. Make choosing to not win make you type no-win
-            //if player_can_win
-            //{
-            //    println!("You should be able to win 77777777777777777777777777777777777777777777777777777777777777777777777777777777777777");
-            //}
+            if player_can_win
+            {
+                println!("You can win with your current hand right now. Win? Type 'y' for yes or 'n' for no");
+                loop {
+                    std::io::stdin().read_line(&mut input).expect("stdin readline failed");
+                    input = input.trim().to_lowercase();
+
+                    if input == "y"
+                    {
+                        return DiscardChoices::Win;
+                    }
+                    else if input == "n"
+                    {
+                        output_player_perspective(game, player_idx);
+                        break;
+                    }
+                    else
+                    {
+                        println!("Please enter 'y' or 'n'");
+                    }
+                }
+            }
+
             println!("Enter which tile you would like to discard (\"n\" standing for \"new\" works for the rightmost drawn tile)");
 
-            let mut input = String::from("");
             std::io::stdin().read_line(&mut input).expect("stdin readline failed");
             input = input.trim().to_lowercase();
-            
+
             return loop {
 
                 let input_as_num = input.parse::<usize>();
 
                 if let Ok(input_as_num) = input_as_num
                 {
-                    // We give the player numbers starting from 1, but indexes start from 0
-                    let input_as_num = input_as_num - 1;
-
-                    if input_as_num > game.players[player_idx].hand.len()
+                    if input_as_num > game.players[player_idx].hand.len() || input_as_num == 0
                     {
                         println!("Enter a number within the valid range!");
-                        continue;
                     }
                     else
                     {
-                        break input_as_num;
+                        // We give the player numbers starting from 1, but indexes start from 0
+                        break DiscardChoices::DiscardTile(input_as_num - 1);
                     }
                 }
                 else if input == "n"
                 {
-                    break game.players[player_idx].hand.len() - 1;
+                    break DiscardChoices::DiscardTile(game.players[player_idx].hand.len() - 1);
+                }
+                else if input == "debug"
+                {
+                    loop {
+                        println!("What debug option? 1 - add tile, 2 - remove tile, 'e' - exit debug mode");
+                        let mut input = String::from("");
+                        std::io::stdin().read_line(&mut input).expect("stdin readline failed");
+                        input = input.trim().to_lowercase();
+
+                        let mut input_as_num = input.parse::<usize>();
+
+                        if let Ok(input_as_num) = input_as_num
+                        {
+                            if input_as_num == 1
+                            {
+                                output_player_perspective(game, player_idx);
+                                println!("Enter tile to add in this format: {{h:ea}} - honor east wind tile. {{m:3}} 3 man tile (red not supported)");
+                                let mut input = String::from("");
+                                std::io::stdin().read_line(&mut input).expect("Reading in from stdin failed");
+                                input = input.trim().to_lowercase();
+                                let mut input_successful : bool = false;
+
+                                if input.as_bytes()[0] == ('{' as u8)
+                                {
+                                    let suit = input.as_bytes()[1];
+                                    if input.as_bytes()[2] == (':' as u8)
+                                    {
+                                        let value = input.as_bytes()[3];
+                                        if input.as_bytes()[4] == ('}' as u8)
+                                        {
+                                            let new_tile = Tile {
+                                                suit : match suit as char {
+                                                    'h' => Suit::Honor,
+                                                    'm' => Suit::Man,
+                                                    'p' => Suit::Pin,
+                                                    's' => Suit::Sou,
+                                                    _ => Suit::Honor
+                                                },
+                                                value : match value as char {
+                                                    '1' => SuitVal::One, '2' => SuitVal::Two,
+                                                    '3' => SuitVal::Three, '4' => SuitVal::Four,
+                                                    '5' => SuitVal::Five, '6' => SuitVal::Six,
+                                                    '7' => SuitVal::Seven, '8' => SuitVal::Eight,
+                                                    '9' => SuitVal::Nine,
+                                                    'e' => SuitVal::East, 's' => SuitVal::South,
+                                                    'w' => SuitVal::West, 'n' => SuitVal::North,
+                                                    'h' => SuitVal::White, 'r' => SuitVal::Red,
+                                                    'g' => SuitVal::Green,
+                                                    _ => SuitVal::Red
+                                                },
+                                                red : false
+                                            };
+
+                                            game.players[player_idx].hand.push(new_tile);
+                                            input_successful = true;
+                                        }
+                                    }
+                                }
+
+                                if ! input_successful
+                                {
+                                    println!("Did not successfully enter new tile");
+                                }
+                            }
+                            else if input_as_num == 2
+                            {
+                                output_player_perspective(game, player_idx);
+                                println!("Enter tile to remove by index");
+                                let mut input = String::from("");
+                                std::io::stdin().read_line(&mut input).expect("Reading in from stdin failed");
+                                input = input.trim().to_lowercase();
+                                let mut input_as_num = input.parse::<usize>();
+
+                                if let Ok(input_as_num) = input_as_num
+                                {
+                                    if input_as_num <= game.players[player_idx].hand.len() && input_as_num != 0
+                                    {
+                                        game.players[player_idx].hand.remove(input_as_num - 1);
+                                        output_player_perspective(game, player_idx);
+                                    }
+                                    else {
+                                        println!("Invalid index for removal {}", input_as_num);
+                                    }
+                                }
+                            }
+                        }
+                        else if (input == "e")
+                        {
+                            output_player_perspective(game, player_idx);
+                            break;
+                        }
+
+                        output_player_perspective(game, player_idx);
+                    }
                 }
                 else
                 {
+                    output_player_perspective(game, player_idx);
                     println!("Enter a tile to discard!");
                 }
 
@@ -350,12 +478,9 @@ pub fn get_player_discard_idx(game : &Game, player_idx : usize) -> usize
 }
 
 
-pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile : Tile, all_possible_calls : &Vec<Set>)
+pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile : Tile, all_possible_calls : &Vec<CalledSet>) -> Option<CalledSet>
 {
-    if all_possible_calls.len() == 0
-    {
-        panic!();
-    }
+    game.dump_game_state();
     output_player_perspective(game, player_idx);
     // we need to calculate how many tile spaces to show to the player so they can choose which set to call on
     // we will insert an empty tile in between every set for spacing
@@ -363,11 +488,7 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
     for set in all_possible_calls
     {
-        num_tiles_to_display += match set.set_type {
-            SetType::ClosedKan | SetType::OpenKan => 4,
-            SetType::Sequence | SetType::Triplet => 3,
-            SetType::Pair => 2,
-        };
+        num_tiles_to_display += set.set.tiles.len();
 
         num_tiles_to_display += 1; // empty space between sets
     }
@@ -376,19 +497,79 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
     // we need lines to display the tiles, a line for numbers to differentiate sets to pick, a line for input prompt, and a line for input
     const LINES_AVAILABLE_FOR_TILES : usize = SCREEN_HEIGHT - 3;
 
-    if (num_tiles_to_display * TILE_LEN) > LINES_AVAILABLE_FOR_TILES
+    if (num_tiles_to_display * TILE_FRONT_VIEW_LEN) > (LINES_AVAILABLE_FOR_TILES * TILE_FRONT_VIEW_LEN)
     {
-        panic!();
+        panic!("There were more tiles available to call on then there was space to print them. {}:tiles_to_display, {}:Lines available", num_tiles_to_display, LINES_AVAILABLE_FOR_TILES);
     }
 
-    println!("You have just been given the option to call");
-    println!("BROOOOOOOOOOOO");
-    println!("BROOOOOOOOOOOO");
-    println!("BROOOOOOOOOOOO");
-    println!("BROOOOOOOOOOOO");
+    let mut call_tile_strs : Vec<String> = vec![];
 
-    let mut input = String::from("");
-    let input = std::io::stdin().read_line(&mut input).expect("bruhhhhhhhh input failed");
+    for (i, set) in all_possible_calls.iter().enumerate() {
+        let mut set_strs = mahjong_tiles_strs(&set.set.tiles, SCREEN_WIDTH);
+
+        set_strs.insert(0, (i + 1).to_string());
+
+        match set.set.set_type {
+            SetType::Kan => set_strs[0].push_str("-kan"),
+            SetType::Sequence => set_strs[0].push_str("-seq"),
+            SetType::Triplet => set_strs[0].push_str("-trip"),
+            _ => ()
+        }
+
+        for i in 0..set_strs.len()
+        {
+            if call_tile_strs.len() < set_strs.len()
+            {
+                call_tile_strs.push(set_strs[i].clone());
+            }
+            else
+            {
+                call_tile_strs[i].push_str(&set_strs[i]);
+            }
+        }
+
+        // insert empty tiles
+        if call_tile_strs[0].chars().count() < (SCREEN_WIDTH - TILE_FRONT_VIEW_LEN) && call_tile_strs.len() > 0
+        {
+            let len = call_tile_strs.len();
+
+            call_tile_strs[len - 1] += "    ";
+            call_tile_strs[len - 2] += "    ";
+            call_tile_strs[len - 3] += "    ";
+            call_tile_strs[len - 4] += "    ";
+        }
+    }
+
+
+    for line in call_tile_strs {
+        println!("{: ^SCREEN_WIDTH$}", line);
+    }
+
+
+    loop {
+        println!("Would you like to call? Press the number for the corresponding call, or 'n' to skip");
+
+        let mut input = String::from("");
+        std::io::stdin().read_line(&mut input).expect("bruhhhhhhhh input failed");
+
+        let input = input.trim().to_lowercase();
+        let input_as_num = input.parse::<usize>();
+
+        if let Ok(input_as_num) = input_as_num
+        {
+            if input_as_num <= all_possible_calls.len() && input_as_num != 0
+            {
+                return Some(all_possible_calls[input_as_num - 1].clone());
+            }
+        }
+        else if input == "n"
+        {
+            return None;
+        }
+
+        println!("Please enter a valid number!");
+    }
+
 }
 
 

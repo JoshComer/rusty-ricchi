@@ -4,6 +4,7 @@ use rand::{Rng, rngs::adapter::ReseedingRng};
 use unicode_segmentation::UnicodeSegmentation;
 use num::{pow, bigint::ParseBigIntError, One};
 
+const DEBUG_OUTPUT : bool = true;
 
 // local imports
 
@@ -21,6 +22,8 @@ use scoring::*;
 pub mod utils;
 use utils::*;
 
+pub mod command;
+use command::*;
 
 // TODO: TESTCASE: m2,m3,m4,p3,p4,p5,p8,s4,s4,s4,s6,s8,s8,s8 - should have four triplets, but no pairs
 
@@ -71,7 +74,7 @@ impl Default for Game
                 Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
-        
+
                 Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
@@ -116,7 +119,7 @@ impl Default for Game
                 Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Pin, value : SuitVal::Three, red : false},
-        
+
                 Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Pin, value : SuitVal::Four, red : false},
@@ -161,7 +164,7 @@ impl Default for Game
                 Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
                 Tile { suit : Suit::Sou, value : SuitVal::Three, red : false},
-        
+
                 Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
                 Tile { suit : Suit::Sou, value : SuitVal::Four, red : false},
@@ -231,7 +234,7 @@ impl Default for Game
             next_tile : 0,
 
             players : [
-                Player::default().set_is_human().to_owned(),        
+                Player::default().set_is_human().to_owned(),
                 Player::default().set_seat_wind(SuitVal::South).to_owned(),
                 Player::default().set_seat_wind(SuitVal::West).to_owned(),
                 Player::default().set_seat_wind(SuitVal::North).to_owned(),
@@ -244,12 +247,21 @@ impl Default for Game
 }
 
 impl Game {
-    /// queries players if they can and want to make a call off of a discard
-    /// returns the index to the next player if a call was made
-    fn execute_call_or_advance_player(&mut self, discarded_tile : Tile) -> ()
+    fn dump_game_state(&self)
     {
-        let mut calls_made : Vec<(usize, CallTypes)> = Vec::with_capacity(4);
-        
+        for i in 0..NUM_PLAYERS
+        {
+            println!("Player {}", i);
+            println!("-------------------------");
+            self.players[i].dump_player_state();
+            print!("\n");
+        }
+    }
+
+    fn get_calls_on_discard(&mut self, discarded_tile : Tile) -> Vec<(usize, CalledSet)>
+    {
+        let mut calls_made : Vec<(usize, CalledSet)> = Vec::with_capacity(4);
+
         for i in 0..NUM_PLAYERS{
             if self.players[i] != self.players[self.curr_player_idx]
             {
@@ -269,16 +281,25 @@ impl Game {
 
                     if possible_calls.any_field_true()
                     {
-                        println!("Turns out they needed it!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-                        let temp = Player::choose_whether_to_call(i, discarded_tile, self);
+                        let call_made = Player::choose_whether_to_call(i, discarded_tile, self);
 
-                        if let Some(call_made) = temp {
+                        if let Some(call_made) = call_made {
                             calls_made.push((i, call_made));
                         }
                     }
                 }
             }
         }
+
+        return calls_made;
+    }
+
+
+    /// queries players if they can and want to make a call off of a discard
+    /// returns the index to the next player if a call was made
+    fn execute_call_or_advance_player(&mut self, discarded_tile : Tile) -> ()
+    {
+        let mut calls_made : Vec<(usize, CalledSet)> = self.get_calls_on_discard(discarded_tile);
 
         // multiple calls can be made simultaneously. Higher precedence gets to call, and multiple
         // people can ron at the same time too
@@ -288,11 +309,11 @@ impl Game {
             self.players[self.curr_player_idx].discard_pile.pop();
 
             let highest_call_precedence = calls_made.iter().max_by_key(
-                |call| call.1.precedence()
-            ).unwrap().1.precedence();
+                |call| call.1.call_type.precedence()
+            ).unwrap().1.call_type.precedence();
 
             calls_made.retain(|call|
-                call.1.precedence() == highest_call_precedence
+                call.1.call_type.precedence() == highest_call_precedence
             );
 
             // this is only possible if multiple people Ron at the same time
@@ -303,10 +324,19 @@ impl Game {
             else
             {
                 let call = &calls_made[0];
-                self.players[call.0].open_tiles_with_call(discarded_tile, call.1);
+                self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
                 // switch to the player who made the call
                 self.curr_player_idx = call.0;
             }
+        }
+        else if calls_made.len() == 1
+        {
+             // remove the discarded tile from the discarder's pile
+            self.players[self.curr_player_idx].discard_pile.pop();
+
+            let call = &calls_made[0];
+            self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
+            self.curr_player_idx = call.0;
         }
         else
         {
@@ -323,12 +353,19 @@ impl Game {
         {
             // TODO: Maybe move this part to the tui function? Haven't added in win condition output functionality yet
             let player_current_hand = self.players[player_idx].hand.clone();
+            self.players[player_idx].sort_hand();
             let player_can_win : bool = self.players[player_idx].check_complete_hand_and_update_waits();
             self.players[player_idx].hand = player_current_hand; // checking for a complete hand requires it be sorted
                                                                 // but we want the newest drawn tile to be shown to the right for discarding purposes
 
             tui_output::output_player_perspective(self, player_idx);
-            discard_idx = tui_output::get_player_discard_idx(self, player_idx);
+            let discard_choice = tui_output::get_player_discard_idx(self, player_idx, player_can_win, false);
+
+            match discard_choice {
+                DiscardChoices::DiscardTile(idx) => discard_idx = idx,
+                DiscardChoices::Win => return None,
+                DiscardChoices::OpenClosedKan => unimplemented!(),
+            }
         }
         // computer picks which to discard
         else
@@ -358,7 +395,7 @@ impl Game {
         else
         {
             self.next_tile += 1;
-            
+
             return Some(self.tiles[self.next_tile - 1]);
         }
     }
@@ -413,7 +450,7 @@ impl Game {
                         self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
                         self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
                     },
-                    (WinningMethod::Tsumo, _) => 
+                    (WinningMethod::Tsumo, _) =>
                     if self.players[winning_player_idx].seat_wind == SuitVal::East
                     {
                         for player in &mut self.players{
@@ -422,7 +459,7 @@ impl Game {
                                 player.points -= round_up_to_100((basic_points * 2) as i32);
                             }
                         }
-                        
+
                         self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
                     }
                     else
@@ -435,14 +472,14 @@ impl Game {
                             else if player.seat_wind != winners_seat_wind
                             {
                                 player.points  -= round_up_to_100(basic_points as i32);
-                            
+
                             }
-                            
+
                         }
-                        
+
                         self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
                         self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
-                        
+
                     },
                     (_,_) => panic!("Player won, but did not have ron or tsumo set"),
                 }
@@ -466,7 +503,7 @@ impl Game {
 
         for i in 0..NUM_GAME_TILES-2 {
             let random_idx : usize = rand::thread_rng().gen_range(i..NUM_GAME_TILES);
-            
+
             // exchange tiles from i and random index
             let mut temp : Tile = self.tiles[i];
             self.tiles[i] = self.tiles[random_idx];
@@ -498,11 +535,12 @@ impl Game {
     {
         self.shuffle();
         self.divy_tiles_to_players();
-        
+
         // clear discards
         for player in &mut self.players{
             player.discard_pile.clear();
             player.tiles_others_called.clear();
+            player.called_sets.clear();
         }
     }
 
@@ -510,7 +548,7 @@ impl Game {
     fn play_hand(&mut self) -> ()
     {
         self.setup_for_hand();
-        
+
         // Dealer is the east wind player
         self.curr_player_idx = self.players.iter()
             .position(|player| player.seat_wind == SuitVal::East)
@@ -521,7 +559,7 @@ impl Game {
                 //draw the next tile or exhaustive draw
                 let next_tile = self.draw_next_tile();
                 if next_tile.is_none()
-                {  
+                {
                     self.score_points_and_advance_dealer(None);
                     break;
                 }
@@ -530,7 +568,7 @@ impl Game {
 
                 // commented out due to fighting the borrow checker
                 //  let curr_player = &mut self.players[curr_player_idx];
-                
+
                 // push the next tile without sorting to keep the tile on the right for display purposes
                 // since after discarding
                 self.players[self.curr_player_idx].hand.push(next_tile);
@@ -545,18 +583,18 @@ impl Game {
                 }
 
                 let discarded_tile = unsafe { discarded_tile.unwrap_unchecked() };
-                
+
                 self.execute_call_or_advance_player(discarded_tile);
-                
-                //TODO: Allow other players to chii, pon, and ron from here 
-            
+
+                //TODO: Allow other players to chii, pon, and ron from here
+
         };
     }
 
     fn play_round(&mut self) -> ()
     {
         const HANDS_PER_ROUND : u8 = 4;
-        
+
         for i in 0..HANDS_PER_ROUND
         {
 
@@ -590,7 +628,7 @@ impl Game {
         {
 
             self.play_round();
-            
+
             // round winds change counter clockwise while player seat winds change clockwise (Weird)
             self.round_wind = match self.round_wind {
                 SuitVal::East => SuitVal::South,
@@ -728,13 +766,15 @@ fn test_daisangen()
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
     );
 
-    game.players[0].revealed_sets = vec!(
-        Set {
-            set_type : SetType::Triplet,
-            tiles : vec![
-                Tile { suit : Suit::Honor, value : SuitVal::Green, red : false } ; 3
-            ],
-            ron : true
+    game.players[0].called_sets = vec!(
+        CalledSet {
+        set : Set {
+                set_type : SetType::Triplet,
+                tiles : vec![
+                    Tile { suit : Suit::Honor, value : SuitVal::Green, red : false } ; 3
+                ],
+            },
+        call_type : CallTypes::Ron(SetType::Triplet)
         }
     );
 
@@ -777,13 +817,15 @@ fn test_suuankou()
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
     );
 
-    game.players[0].revealed_sets = vec!(
-        Set {
-            set_type : SetType::Pair,
-            tiles : vec![
-                Tile {  suit : Suit::Man, value : SuitVal::Seven, red : false} ; 2
-            ],
-            ron : true,
+    game.players[0].called_sets = vec!(
+        CalledSet {
+            set : Set {
+                    set_type : SetType::Pair,
+                    tiles : vec![
+                        Tile {  suit : Suit::Man, value : SuitVal::Seven, red : false} ; 2
+                    ],
+                },
+            call_type : CallTypes::Ron(SetType::Pair)
         }
     );
 
@@ -795,7 +837,7 @@ fn test_suuankou()
 
 
     assert_eq!(yakuman_suuankou(&game.players[0], &game), 2);
-    
+
     game.score_points_and_advance_dealer(Some(0));
 
     assert_eq!(game.players[0].points, 25000 + (16000 * 6));
@@ -833,29 +875,35 @@ fn test_fu_1()
 
     winning_player.sort_hand();
 
-    winning_player.revealed_sets = vec!(
-        Set {
-            set_type : SetType::ClosedKan,
+    winning_player.called_sets = vec!(
+        CalledSet {
+            set : Set {
+            set_type : SetType::Kan,
             tiles : vec![
                 Tile { suit : Suit::Man, value : SuitVal::One, red : false } ; 4
             ],
-            ron : false
+            },
+            call_type : CallTypes::ClosedKan
         },
-        Set {
-            set_type : SetType::ClosedKan,
+        CalledSet {
+            set : Set {
+            set_type : SetType::Kan,
             tiles : vec![
                 Tile { suit : Suit::Honor, value : SuitVal::Red, red : false } ; 4
             ],
-            ron : false,
+            },
+            call_type : CallTypes::ClosedKan
         },
-        Set {
+        CalledSet {
+            set : Set {
             set_type : SetType::Triplet,
             tiles : vec![
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-            ],
-            ron : true
+                ],
+            },
+            call_type : CallTypes::Ron(SetType::Triplet)
         }
     );
 
@@ -894,27 +942,34 @@ fn test_fu_2()
 
     winning_player.sort_hand();
 
-    winning_player.revealed_sets = vec!(
-        Set {
-            set_type : SetType::ClosedKan,
+    winning_player.called_sets = vec!(
+        CalledSet {
+            set : Set {
+            set_type : SetType::Kan,
             tiles : vec![
                 Tile { suit : Suit::Pin, value : SuitVal::One, red : false } ; 4
             ],
-            ron : false
+            },
+            call_type : CallTypes::ClosedKan
         },
-        Set {
-            set_type : SetType::ClosedKan,
+        CalledSet {
+            set : Set {
+            set_type : SetType::Kan,
             tiles : vec![
                 Tile { suit : Suit::Honor, value : SuitVal::West, red : false } ; 4
             ],
-            ron : false,
+
+            },
+            call_type : CallTypes::ClosedKan
         },
-        Set {
-            set_type : SetType::OpenKan,
+        CalledSet {
+            set : Set {
+            set_type : SetType::Kan,
             tiles : vec![
                 Tile { suit : Suit::Man, value : SuitVal::Nine, red : false } ; 4
             ],
-            ron : false
+            },
+            call_type : CallTypes::OpenKan
         },
     );
 
@@ -950,33 +1005,39 @@ fn test_fu_open_pinfu()
         Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
     );
 
-    winning_player.revealed_sets = vec!(
-        Set {
-            set_type : SetType::Sequence,
-            tiles : vec![
-                Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Pin, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Pin, value : SuitVal::Four, red : false },
-            ],
-            ron : false
+    winning_player.called_sets = vec!(
+        CalledSet {
+            set : Set {
+                set_type : SetType::Sequence,
+                tiles : vec![
+                    Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
+                    Tile { suit : Suit::Pin, value : SuitVal::Three, red : false },
+                    Tile { suit : Suit::Pin, value : SuitVal::Four, red : false },
+                ],
+            },
+            call_type : CallTypes::Chii
         },
-        Set {
-            set_type : SetType::Sequence,
-            tiles : vec![
-                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
-            ],
-            ron : false,
+        CalledSet {
+            set : Set {
+                set_type : SetType::Sequence,
+                tiles : vec![
+                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
+                ],
+            },
+            call_type : CallTypes::Chii
         },
-        Set {
-            set_type : SetType::Sequence,
-            tiles : vec![
-                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-            ],
-            ron : true
+        CalledSet {
+            set : Set {
+                set_type : SetType::Sequence,
+                tiles : vec![
+                    Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                ],
+            },
+            call_type : CallTypes::Ron(SetType::Sequence)
         },
     );
 
@@ -988,21 +1049,23 @@ fn test_fu_open_pinfu()
 
     // hand gets 0 fu, but hands with 0 fu are rounded up to 30
     assert_eq!(game.players[0].hand_fu(&game, false), 30);
-    
+
     // test that there's no fu points, even with a tsumo
-    game.players[0].revealed_sets[2] = Set {
-            set_type : SetType::Sequence,
-            tiles : vec![
-                Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
-            ],
-            ron : false
+    game.players[0].called_sets[2] = CalledSet {
+            set : Set {
+                set_type : SetType::Sequence,
+                tiles : vec![
+                    Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                    Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                ],
+            },
+            call_type : CallTypes::Tsumo
     };
     game.players[0].last_picked_tile = Tile { suit : Suit::Sou, value : SuitVal::Six, red : false };
     game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
 
-//    TODO Detect pinfu properly, so as to correctly give no 
+//    TODO Detect pinfu properly, so as to correctly give no
 //    assert_eq!(game.players[0].hand_fu(&game, false), 30);
 
     //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
@@ -1042,7 +1105,7 @@ fn test_callable_tiles()
             ..Player::default()
         };
     }
-    
+
     {
         let mut player = Player {
             hand : vec![
@@ -1224,8 +1287,8 @@ fn test_callable_tiles()
             println!("Callable is {}", tile)
         }
 
-        let pair_call_only = Calls {
-            pair : true,
+        let ron_call_only = Calls {
+            ron : true,
             ..Calls::default()
         };
 
@@ -1238,13 +1301,14 @@ fn test_callable_tiles()
             chii : true,
             kan : true,
             pon : true,
-            pair : false,
+            ron : false,
+            ron_set : Set::invalid_default()
         };
 
         assert_eq!(player.callable_tiles.len(), 7);
-        
+
         assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Three, ..sou_tile} ), true);
-        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Three, ..sou_tile }).or_default(), pair_call_only);
+        assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Three, ..sou_tile }).or_default(), ron_call_only);
 
         assert_eq!(player.callable_tiles.contains_key( &Tile { value : SuitVal::Four, ..sou_tile} ), true);
         assert_eq!(*player.callable_tiles.entry(Tile { value : SuitVal::Four, ..sou_tile}).or_default(), chii_call_only);
@@ -1264,4 +1328,9 @@ fn test_callable_tiles()
 }
 
 
-
+// TODO: This is the next thing
+pub enum DiscardChoices {
+    DiscardTile(usize),
+    Win,
+    OpenClosedKan,
+}

@@ -1,6 +1,6 @@
 use crate::mahjong::player::*;
 use crate::mahjong::*;
-    
+
     pub fn yaku_chiitoitsu(player : &Player, game : &Game) -> usize
     {
         0
@@ -37,7 +37,7 @@ use crate::mahjong::*;
         &&  player.tiles_contain(Suit::Honor, SuitVal::Red)
         &&  player.tiles_contain(Suit::Honor, SuitVal::White)
         &&  player.tiles_contain(Suit::Honor, SuitVal::Green)
-        &&  player.hand_num_pairs() == 1 
+        &&  player.hand_num_pairs() == 1
         {
             // double yakuman if there was a 13 sided wait for the last tile
             if player.tiles_num_of(player.last_picked_tile.suit, player.last_picked_tile.value) == 2
@@ -54,7 +54,7 @@ use crate::mahjong::*;
     // four concealed triplets and a pair
     pub fn yakuman_suuankou(player : &Player, game : &Game) -> usize
     {
-        if player.revealed_sets.len() <= 1 && player.hand_num_triplets() == 4
+        if player.called_sets.len() <= 1 && player.hand_num_triplets() == 4
         {
             // double yakuman if wait is on the pair
             if player.tiles_num_of(player.last_picked_tile.suit, player.last_picked_tile.value) == 2
@@ -82,7 +82,7 @@ use crate::mahjong::*;
         if num_wind_sets == 4
         {
             return 2;
-        } 
+        }
         // three little winds
         else if num_wind_sets == 3 && num_wind_pairs == 1
         {
@@ -109,7 +109,7 @@ use crate::mahjong::*;
         for i in 0..player.hand.len()
         {
             let cur : Tile = player.hand[i];
-            
+
             // suit check
             if cur.suit != Suit::Sou && cur.suit != Suit::Honor
             {
@@ -117,7 +117,7 @@ use crate::mahjong::*;
             }
 
             // value check
-            if cur.value != SuitVal::Two && cur.value != SuitVal::Three 
+            if cur.value != SuitVal::Two && cur.value != SuitVal::Three
                 && cur.value != SuitVal::Four && cur.value != SuitVal::Six
                 && cur.value != SuitVal::Eight && cur.value != SuitVal::Green
             {
@@ -131,17 +131,17 @@ use crate::mahjong::*;
     // all terminal tiles
     pub fn yakuman_chinroutou(player : &Player, game : &Game) -> usize
     {
-       for i in 0..player.hand.len()
-       {
-           let cur : Tile = player.hand[i];
+        for i in 0..player.hand.len()
+        {
+            let cur : Tile = player.hand[i];
 
-           if cur.value != SuitVal::One && cur.value != SuitVal::Nine
-           {
-               return 0;
-           }
-       } 
+            if cur.value != SuitVal::One && cur.value != SuitVal::Nine
+            {
+                return 0;
+            }
+        }
 
-       return 1;
+        return 1;
     }
 
     // TODO: The opened door? Forget the english translation. Full straight with extra terminals
@@ -157,8 +157,8 @@ use crate::mahjong::*;
             }
         }
 
-        return 
-             ( player.hand.iter().filter(|&t| t.value == SuitVal::One).count() >= 3
+        return
+            ( player.hand.iter().filter(|&t| t.value == SuitVal::One).count() >= 3
             && player.hand.iter().filter(|&t| t.value == SuitVal::Two).count() >= 1
             && player.hand.iter().filter(|&t| t.value == SuitVal::Three).count() >= 1
             && player.hand.iter().filter(|&t| t.value == SuitVal::Four).count() >= 1
@@ -174,8 +174,8 @@ use crate::mahjong::*;
     pub fn yakuman_suukantsu(player : &Player, game : &Game) -> usize
     {
         // checking for the 4 quads
-        if player.revealed_sets.iter().filter(
-            |&set| set.set_type == SetType::OpenKan || set.set_type == SetType::ClosedKan).count() != 4
+        if player.called_sets.iter().filter(
+            |&set| set.set.set_type == SetType::Kan).count() != 4
         {
             return 0;
         }
@@ -183,8 +183,8 @@ use crate::mahjong::*;
         // checking for the pair
         // since the 4 quads have to be revealed, the pair could be the only tiles in the hand, or also revealed
         if player.hand_num_pairs() == 1
-        || player.revealed_sets.iter().filter(
-            |&set| set.set_type == SetType::Pair).count() == 1
+        || player.called_sets.iter().filter(
+            |&set| set.set.set_type == SetType::Pair).count() == 1
         {
             return 1;
         }
@@ -198,7 +198,7 @@ use crate::mahjong::*;
     pub fn yakuman_tenhou(player : &Player, game : &Game) -> usize
     {
         if player.seat_wind == SuitVal::East
-        && player.revealed_sets.len() == 0
+        && player.called_sets.len() == 0
         && game.next_tile == 0
         {
             return 1;
@@ -216,7 +216,7 @@ use crate::mahjong::*;
         && game.next_tile != 0
         && game.num_called_tiles == 0
         && player.seat_wind == SuitVal::East
-        && player.revealed_sets.len() == 0
+        && player.called_sets.len() == 0
         {
             return 1;
         }
@@ -226,12 +226,12 @@ use crate::mahjong::*;
 
 
 pub const YAKUMAN_FUNCS : [ &dyn Fn(&Player, &Game) -> usize ; 11] = [
-    &yakuman_daisangen,    
-    &yakuman_kokushi_musou,    
+    &yakuman_daisangen,
+    &yakuman_kokushi_musou,
     &yakuman_suuankou,
     &yakuman_suushiihou,
-    &yakuman_tsuuiisou,    
-    &yakuman_ryuuiisou,    
+    &yakuman_tsuuiisou,
+    &yakuman_ryuuiisou,
     &yakuman_chinroutou,
     &yakuman_chuuren_poutou,
     &yakuman_suukantsu,
