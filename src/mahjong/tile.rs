@@ -4,14 +4,14 @@ use std::hash::{Hash, Hasher};
 use std::{fmt, slice::Windows, usize::MAX, iter::empty, collections::HashMap, };
 use int_enum::IntEnum;
 
+use Suit::*;
+use SuitVal::*;
 
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
 //                         Suit and SuitValue for use with Tile
 // ----------------------------------------------------------------------------------------
 // ----------------------------------------------------------------------------------------
-
-
 
 #[allow(dead_code)]
 #[derive(EnumIter, Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -163,6 +163,41 @@ pub struct Tile {
 }
 
 impl Tile {
+    fn numbered_tile(suit : Suit, number_val : usize) -> Tile
+    {
+        Tile {
+            red : false,
+            suit,
+            value : match number_val {
+                1 => SuitVal::One,
+                2 => SuitVal::Two,
+                3 => SuitVal::Three,
+                4 => SuitVal::Four,
+                5 => SuitVal::Five,
+                6 => SuitVal::Six,
+                7 => SuitVal::Seven,
+                8 => SuitVal::Eight,
+                9 => SuitVal::Nine,
+                _ => panic!()
+            }
+        }
+    }
+
+    pub fn man_tile(number_val : usize) -> Tile
+    {
+        Tile::numbered_tile(Suit::Man, number_val)
+    }
+
+    pub fn sou_tile(number_val : usize) -> Tile
+    {
+        Tile::numbered_tile(Suit::Sou, number_val)
+    }
+
+    pub fn pin_tile(number_val : usize) -> Tile
+    {
+        Tile::numbered_tile(Suit::Pin, number_val)
+    }
+
     pub fn get_prev_num_tile(&self) -> Option<Tile>
     {
         match self.value.get_prev_num() {
@@ -265,6 +300,43 @@ pub struct Set {
 }
 
 impl Set {
+    /// constructs a sequence starting from the given tile
+    pub fn sequence(first_tile : Tile) -> Set
+    {
+        let second_tile = first_tile.get_next_num_tile().unwrap();
+        let third_tile = second_tile.get_next_num_tile().unwrap();
+
+        Set {
+            set_type : SetType::Sequence,
+            tiles : vec![ first_tile, second_tile, third_tile ]
+        }
+    }
+
+    /// constructs a triplet from the given tile
+    pub fn triplet(tile : Tile) -> Set
+    {
+        Set { set_type: SetType::Triplet, tiles: vec![tile ; 3] }
+    }
+
+    /// autodetects what type of set the tiles should be in and autogenerates it.
+    pub fn from_tiles(tiles : &[Tile]) -> Set
+    {
+        Set { 
+            set_type: match tiles.len() {
+                2 => SetType::Pair,
+                4 => SetType::Kan,
+                3 => {
+                    if tiles[0] == tiles[1]
+                    {   SetType::Triplet    }
+                    else
+                    {   SetType::Sequence   }
+                }
+                _ => panic!()
+            },
+            tiles : tiles.to_vec()
+        }
+    }
+
     pub fn invalid_default() -> Self {
         Set {
             set_type: SetType::Kan,
@@ -521,6 +593,7 @@ impl Default for Calls {
 }
 
 /// Takes a hand in tenpai, and returns the tiles which would complete the hand and give it a win
+/// winning_configurations contains possible combinations of sets which can be made from a player which only need one more set to win
 /// TODO: Make compatible with yakuman, and not just basic complete hands
 pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurations : Vec<Vec<Set>>) -> Vec<(Tile, Set)>
 {
@@ -535,7 +608,13 @@ pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurati
         {
             for tile in &set.tiles
             {
-                let mut idx = hand.iter().position(|hand_tile| *hand_tile == *tile).expect("Error: Hand did not have tile in winning set");
+                let idx = hand.iter().position(|hand_tile| *hand_tile == *tile);
+                if idx.is_none()
+                {
+                    continue;
+                }
+                
+                let mut idx = idx.unwrap();
 
                 // since there can be duplicates of tiles, move past the ones we've already found from previous sets
                 while found_tile_map[idx] == true
@@ -562,6 +641,7 @@ pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurati
         // Not waiting on pair, need to find which tile completes the set
         if let Some(second_unclaimed_tile_pos) = second_unclaimed_tile_pos
         {
+            println!("This was added for testing. {} pos idx", second_unclaimed_tile_pos);
             let first_tile = hand[first_unclaimed_tile_pos];
             let second_tile = hand[second_unclaimed_tile_pos];
 
@@ -574,7 +654,7 @@ pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurati
                 }));
             }
             // need a sequence to complete the hand
-            else
+            else if first_tile.get_next_num_tile().unwrap_or(INVALID_TILE) == second_tile || first_tile.get_prev_num_tile().unwrap_or(INVALID_TILE) == second_tile
             {
                 let prev_in_seq = if first_tile < second_tile { first_tile } else { second_tile };
                 let next_in_seq = if first_tile < second_tile { second_tile } else { first_tile };
@@ -603,6 +683,24 @@ pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurati
                     }));
                 }
             }
+            // waiting on two pairs
+            else
+            {
+                winning_tiles.push(
+                    (first_tile, Set {
+                        set_type : SetType::Pair,
+                        tiles : vec![first_tile ; 2],
+                    }
+                    )
+                );
+
+                winning_tiles.push(
+                    (second_tile, Set {
+                        set_type : SetType::Pair,
+                        tiles : vec![second_tile ; 2],
+                    })
+                );
+            }
         }
         // waiting on pair
         else
@@ -619,4 +717,70 @@ pub fn get_winning_tiles_from_tenpai_hand(hand : &Vec<Tile>, winning_configurati
     }
 
     return winning_tiles;
+}
+
+#[test]
+fn test_get_winning_tiles_from_tenpai_hand()
+{
+    {
+        let hand = vec![Tile { suit : Suit::Pin, value : SuitVal::Eight, red : false}, Tile { suit : Suit::Sou, value : SuitVal::Five, red : false }];
+        let called_sets = vec![vec![
+            Set::sequence( Tile::man_tile(1) ),
+            Set::sequence( Tile::man_tile(7) ),
+            Set::sequence( Tile::pin_tile(1) ),
+            Set::sequence( Tile::pin_tile(1) ),
+        ]];
+
+        let tiles_and_sets = get_winning_tiles_from_tenpai_hand(&hand, called_sets);
+
+        assert_eq!(tiles_and_sets.len(), 2);
+        println!("{:?}", tiles_and_sets);
+        assert_eq!((tiles_and_sets[0].0 == hand[0]), true);
+        assert_eq!((tiles_and_sets[1].0 == hand[1]), true);
+    }
+    
+    {
+        let hand = vec![ Tile::pin_tile(7), Tile::pin_tile(8), Tile::man_tile(2), Tile::man_tile(2) ];
+        let called_sets = vec![vec![
+            Set::sequence(Tile::sou_tile(1)),
+            Set::triplet(Tile::sou_tile(7)),
+            Set::sequence(Tile::pin_tile(1)),
+        ]];
+            
+        let tiles_and_sets = get_winning_tiles_from_tenpai_hand(&hand, called_sets);
+
+        assert_eq!(tiles_and_sets.len(), 2);
+        println!("{:?}", tiles_and_sets);
+        assert_eq!((tiles_and_sets[0].0 == Tile::pin_tile(6)), true);
+        assert_eq!((tiles_and_sets[1].0 == Tile::pin_tile(9)), true);
+    }
+    
+    {
+        let hand = vec![ Tile::pin_tile(5), Tile::pin_tile(6), Tile::pin_tile(7), Tile::pin_tile(8) ];
+        let called_sets = vec![
+            Set::sequence(Tile::sou_tile(1)),
+            Set::triplet(Tile::sou_tile(7)),
+            Set::sequence(Tile::pin_tile(1)),
+        ];
+
+        let mut first_winning = called_sets.clone();
+        first_winning.push( Set::sequence( Tile::pin_tile(5) ) );
+
+        let mut second_winning = called_sets.clone();
+        second_winning.push( Set::sequence( Tile::pin_tile(6) ) );
+
+
+        let winning_configurations = vec![
+            first_winning,
+            second_winning
+        ];
+
+        let tiles_and_sets = get_winning_tiles_from_tenpai_hand(&hand, winning_configurations);
+
+        assert_eq!(tiles_and_sets.len(), 2);
+        println!("{:#?}", tiles_and_sets);
+        assert_eq!(tiles_and_sets[0].0, Tile::pin_tile(8));
+        assert_eq!(tiles_and_sets[1].0, Tile::pin_tile(5));
+    }
+
 }

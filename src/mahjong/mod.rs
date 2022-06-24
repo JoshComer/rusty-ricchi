@@ -43,6 +43,7 @@ pub struct Game {
     players : [Player; NUM_PLAYERS],
 
     round_wind : SuitVal,
+    player_just_called : bool,
 }
 
 impl Default for Game
@@ -50,6 +51,8 @@ impl Default for Game
     fn default() -> Self {
 
         let mut new_game = Game {
+            player_just_called : false,
+
             round_wind : SuitVal::East,
 
             num_called_tiles : 0,
@@ -247,6 +250,14 @@ impl Default for Game
 }
 
 impl Game {
+    fn reveal_dora(&mut self) -> ()
+    {
+        if self.dora_idx < NUM_GAME_TILES
+        {
+            self.dora_idx += 1;
+        }
+    }
+
     fn dump_game_state(&self)
     {
         for i in 0..NUM_PLAYERS
@@ -305,6 +316,7 @@ impl Game {
         // people can ron at the same time too
         if calls_made.len() > 1
         {
+            self.player_just_called = true;
             // remove the discarded tile from the discarder's pile
             self.players[self.curr_player_idx].discard_pile.pop();
 
@@ -331,6 +343,7 @@ impl Game {
         }
         else if calls_made.len() == 1
         {
+            self.player_just_called = true;
              // remove the discarded tile from the discarder's pile
             self.players[self.curr_player_idx].discard_pile.pop();
 
@@ -340,6 +353,7 @@ impl Game {
         }
         else
         {
+            self.player_just_called = false;
             self.curr_player_idx = (self.curr_player_idx + 1) % NUM_PLAYERS;
         }
     }
@@ -363,7 +377,10 @@ impl Game {
 
             match discard_choice {
                 DiscardChoices::DiscardTile(idx) => discard_idx = idx,
-                DiscardChoices::Win => return None,
+                DiscardChoices::Win => {
+                    self.players[player_idx].ron_or_tsumo = (WinningMethod::Tsumo, usize::MAX);
+                    return None
+                },
                 DiscardChoices::OpenClosedKan(kanned_tile) => unimplemented!(),
                 DiscardChoices::AddedKan(kanned_tile) => unimplemented!(),
             }
@@ -381,6 +398,7 @@ impl Game {
         let discarded_tile = self.players[player_idx].hand.remove(discard_idx);
         self.players[player_idx].discard_pile.push(discarded_tile);
         self.players[player_idx].sort_hand();
+        self.players[player_idx].check_complete_hand_and_update_waits();
         self.players[player_idx].update_callable_tiles();
 
         Some(discarded_tile)
@@ -441,47 +459,47 @@ impl Game {
 
                 match self.players[winning_player_idx].ron_or_tsumo {
                     (WinningMethod::Ron, victim_index) =>  // "victim" is the player who got ron called on them
-                    if self.players[winning_player_idx].seat_wind == SuitVal::East
-                    {
-                        self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
-                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 6) as i32);
-                    }
-                    else
-                    {
-                        self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
-                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
-                    },
+                        if self.players[winning_player_idx].seat_wind == SuitVal::East
+                        {
+                            self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
+                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 6) as i32);
+                        }
+                        else
+                        {
+                            self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
+                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
+                        },
                     (WinningMethod::Tsumo, _) =>
-                    if self.players[winning_player_idx].seat_wind == SuitVal::East
-                    {
-                        for player in &mut self.players{
-                            if player.seat_wind != winners_seat_wind
-                            {
-                                player.points -= round_up_to_100((basic_points * 2) as i32);
+                        if self.players[winning_player_idx].seat_wind == SuitVal::East
+                        {
+                            for player in &mut self.players{
+                                if player.seat_wind != winners_seat_wind
+                                {
+                                    player.points -= round_up_to_100((basic_points * 2) as i32);
+                                }
                             }
+
+                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
                         }
+                        else
+                        {
+                            for player in &mut self.players {
+                                if player.seat_wind == SuitVal::East
+                                {
+                                    player.points -= round_up_to_100((basic_points * 2) as i32);
+                                }
+                                else if player.seat_wind != winners_seat_wind
+                                {
+                                    player.points  -= round_up_to_100(basic_points as i32);
 
-                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
-                    }
-                    else
-                    {
-                        for player in &mut self.players {
-                            if player.seat_wind == SuitVal::East
-                            {
-                                player.points -= round_up_to_100((basic_points * 2) as i32);
+                                }
+
                             }
-                            else if player.seat_wind != winners_seat_wind
-                            {
-                                player.points  -= round_up_to_100(basic_points as i32);
 
-                            }
+                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
+                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
 
-                        }
-
-                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
-                        self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
-
-                    },
+                        },
                     (_,_) => panic!("Player won, but did not have ron or tsumo set"),
                 }
 
@@ -558,21 +576,23 @@ impl Game {
         loop
         {
                 //draw the next tile or exhaustive draw
-                let next_tile = self.draw_next_tile();
-                if next_tile.is_none()
+                if ! self.player_just_called
                 {
-                    self.score_points_and_advance_dealer(None);
-                    break;
+                    let next_tile = self.draw_next_tile();
+                    if next_tile.is_none()
+                    {
+                        self.score_points_and_advance_dealer(None);
+                        break;
+                    }
+
+                    let next_tile = unsafe {next_tile.unwrap_unchecked()};
+                    self.players[self.curr_player_idx].hand.push(next_tile);
                 }
-
-                let next_tile = unsafe {next_tile.unwrap_unchecked()};
-
                 // commented out due to fighting the borrow checker
                 //  let curr_player = &mut self.players[curr_player_idx];
 
                 // push the next tile without sorting to keep the tile on the right for display purposes
                 // since after discarding
-                self.players[self.curr_player_idx].hand.push(next_tile);
                 let discarded_tile = self.player_choose_discard_or_win(self.curr_player_idx);
                 self.players[self.curr_player_idx].sort_hand();
 
@@ -586,9 +606,6 @@ impl Game {
                 let discarded_tile = unsafe { discarded_tile.unwrap_unchecked() };
 
                 self.execute_call_or_advance_player(discarded_tile);
-
-                //TODO: Allow other players to chii, pon, and ron from here
-
         };
     }
 
@@ -645,7 +662,10 @@ impl Game {
 }
 
 
-
+pub enum PlayerAdvancement {
+    NextPlayer(usize),
+    Call(usize),
+}
 
 
 
@@ -1202,15 +1222,15 @@ fn test_callable_tiles()
         }
 
         assert_eq!(player.callable_tiles.len(), 9);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Eight, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Nine, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(1) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(2) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(3) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(4) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(5) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(6) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(7) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(8) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(9) ), true);
     }
 
     // TODO: Test this hand for tenpai detection
@@ -1245,17 +1265,15 @@ fn test_callable_tiles()
         }
 
         assert_eq!(player.callable_tiles.len(), 11);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::One, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Two, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Three, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Four, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Five, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Six, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Seven, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Eight, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Man, value : SuitVal::Nine, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Sou, value : SuitVal::One, red : true} ), true);
-        assert_eq!(player.callable_tiles.contains_key( &Tile { suit : Suit::Sou, value : SuitVal::Nine, red : true} ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(1) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(2) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(3) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(4) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(5) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(6) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(7) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(8) ), true);
+        assert_eq!(player.callable_tiles.contains_key( &Tile::man_tile(9) ), true);
     }
 
     {

@@ -508,7 +508,11 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
         num_tiles_to_display += 1; // empty space between sets
     }
-    num_tiles_to_display -= 1; // removing the last unneeded empty tile space. We already know that all_possible_calls has a length of at least 1
+    
+    if num_tiles_to_display > 0
+    {
+        num_tiles_to_display -= 1; // removing the last unneeded empty tile space. We already know that all_possible_calls has a length of at least 1
+    }
 
     // we need lines to display the tiles, a line for numbers to differentiate sets to pick, a line for input prompt, and a line for input
     const LINES_AVAILABLE_FOR_TILES : usize = SCREEN_HEIGHT - 3;
@@ -525,14 +529,20 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
         set_strs.insert(0, (i + 1).to_string());
 
-        match set.set.set_type {
-            SetType::Kan => set_strs[0].push_str("-kan"),
-            SetType::Sequence => set_strs[0].push_str("-seq"),
-            SetType::Triplet => set_strs[0].push_str("-trip"),
-            _ => ()
+        if let CallTypes::Ron(tile) = set.call_type
+        {
+            set_strs[0].push_str("-ron");
+        }
+        else {
+            match set.set.set_type {
+                SetType::Kan => set_strs[0].push_str("-kan"),
+                SetType::Sequence => set_strs[0].push_str("-seq"),
+                SetType::Triplet => set_strs[0].push_str("-trip"),
+                _ => ()
         }
 
-        for i in 0..set_strs.len()
+        }
+            for i in 0..set_strs.len()
         {
             if call_tile_strs.len() < set_strs.len()
             {

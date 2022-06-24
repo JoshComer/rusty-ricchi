@@ -13,6 +13,8 @@ use crate::mahjong::tui_output;
 
 use crate::mahjong::scoring;
 
+use crate::mahjong::utils;
+
 pub const NUM_PLAYERS    : usize = 4;
 
 
@@ -189,6 +191,8 @@ impl Player {
             println!("");
         }
         print!("\n");
+
+        println!("Tenpai:{}", self.tenpai);
 
 
     }
@@ -1081,7 +1085,12 @@ impl Player
             }
             if possible_calls.ron
             {
-                all_possible_calls.push(
+                println!("THERE WAS A RON");
+                 println!("THERE WAS A RON");
+                 println!("THERE WAS A RON");
+                 println!("THERE WAS A RON");
+                 println!("THERE WAS A RON");
+            all_possible_calls.push(
                     CalledSet {
                         set : possible_calls.ron_set.clone(),
                         call_type: CallTypes::Ron(possible_calls.ron_set.set_type)
@@ -1431,19 +1440,16 @@ fn test_check_complete_hand_and_update_waits()
 
 
     assert_hand_wins(vec![Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Four, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Five, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false},]);
+                Tile::man_tile( 1 ), Tile::man_tile( 1 ), Tile::man_tile( 1 ),
+                Tile::man_tile( 2 ),
+                Tile::man_tile( 3 ),
+                Tile::man_tile( 4 ),
+                Tile::man_tile( 5 ),
+                Tile::man_tile( 6 ),
+                Tile::man_tile( 7 ),
+                Tile::man_tile( 8 ),
+                Tile::man_tile( 9 ), Tile::man_tile( 9 ), Tile::man_tile( 9 ),
+                ]);
 
     assert_hand_wins(vec![Tile { suit : Suit::Man, value : SuitVal::Six, red : false},
                 Tile { suit : Suit::Man, value : SuitVal::One, red : false},
@@ -1463,71 +1469,6 @@ fn test_check_complete_hand_and_update_waits()
 
 
 
-    fn gen_random_suit(honors_available : bool) -> Suit
-    {
-        let suit_range = if honors_available { 0..4 } else { 0..3 };
-
-        match rand::thread_rng().gen_range(suit_range) {
-            0 => Suit::Man,
-            1 => Suit::Pin,
-            2 => Suit::Sou,
-            3 => Suit::Honor,
-            _ => panic!()
-        }
-    }
-
-    fn get_random_pair_triplet_or_kan(num_tiles : usize) -> Set
-    {
-        let set_type = gen_random_suit(true);
-        let mut set_value;
-
-        if set_type == Suit::Honor
-        {
-            set_value = match rand::thread_rng().gen_range(0..7) {
-                0 => SuitVal::East, 1 => SuitVal::West, 2 => SuitVal::South, 3 => SuitVal::North,
-                4 => SuitVal::Red, 5 => SuitVal::Green, 6 => SuitVal::White, _ => panic!()
-            };
-        }
-        else {
-            set_value = match rand::thread_rng().gen_range(1..10) {
-                1 => SuitVal::One, 2 => SuitVal::Two, 3 => SuitVal::Three, 4 => SuitVal::Four,
-                5 => SuitVal::Five, 6 => SuitVal::Six, 7 => SuitVal::Seven, 8 => SuitVal::Eight, 9 => SuitVal::Nine,
-                _ => panic!()
-            };
-        }
-
-        Set {
-            set_type : if num_tiles == 2 { SetType::Pair } else if num_tiles == 3 { SetType::Triplet } else { SetType::Kan },
-            tiles: vec![ Tile { suit : set_type, value : set_value, red : false } ; num_tiles]
-        }
-    }
-
-    fn get_random_sequence() -> Set
-    {
-        let set_type = gen_random_suit(false);
-
-        let number = match rand::thread_rng().gen_range(1..8) {
-            1 => SuitVal::One, 2 => SuitVal::Two, 3 => SuitVal::Three, 4 => SuitVal::Four,
-            5 => SuitVal::Five, 6 => SuitVal::Six, 7 => SuitVal::Seven, _ => panic!()
-        };
-
-        let first_tile = Tile {
-            suit : set_type,
-            value : number,
-            red : false,
-        };
-
-        let second_tile = Tile {
-            ..first_tile.get_next_num_tile().unwrap()
-        };
-
-        let third_tile = Tile {
-            ..second_tile.get_next_num_tile().unwrap()
-        };
-
-        return Set { set_type: SetType::Sequence , tiles: vec![first_tile, second_tile, third_tile] };
-    }
-
     const NUM_RAND_TESTS : usize = 100;
 
     // TODO: Add called sets in revealed sets, tenpai hand testing, and incorrect hand testing
@@ -1538,16 +1479,16 @@ fn test_check_complete_hand_and_update_waits()
         for i in 0..5
         {
             let new_set = match rand::thread_rng().gen_range(0..3) {
-                0 => get_random_sequence(),
-                1 => get_random_pair_triplet_or_kan(3),
-                2 => get_random_pair_triplet_or_kan(4),
+                0 => utils::get_random_sequence(),
+                1 => utils::get_random_pair_triplet_or_kan(3),
+                2 => utils::get_random_pair_triplet_or_kan(4),
                 _ => panic!()
             };
 
             sets.push(new_set);
         }
 
-        sets.push(get_random_pair_triplet_or_kan(2));
+        sets.push(utils::get_random_pair_triplet_or_kan(2));
 
         let mut hand : Vec<Tile> = vec![];
 
@@ -1565,5 +1506,40 @@ fn test_check_complete_hand_and_update_waits()
         check_hand_wins(hand);
     }
 
+    let mut player = Player {
+        hand : vec![  Tile::man_tile(6), Tile::man_tile(6),
+                        Tile::sou_tile(6), Tile::sou_tile(6)
+                    ],
+        called_sets : vec![
+            CalledSet {
+                call_type : CallTypes::Chii,
+                set : Set::from_tiles(&vec![ Tile::man_tile(7), Tile::man_tile(8), Tile::man_tile(9)]), 
+            },
+            CalledSet {
+                call_type : CallTypes::Chii,
+                set : Set::from_tiles(&vec![ Tile::pin_tile(1), Tile::pin_tile(2), Tile::pin_tile(3)]),
+            },
+            CalledSet {
+                call_type : CallTypes::Pon,
+                set : Set::from_tiles(&vec![ Tile::pin_tile(9), Tile::pin_tile(9), Tile::pin_tile(9)]),
+            }
+        ],
+        ..Player::default()
+    };
+    player.sort_hand();
+    player.check_complete_hand_and_update_waits();
+
+    assert_eq!(player.winning_call_tiles.contains(&Tile::man_tile(6)), true);
+    assert_eq!(player.winning_call_tiles.contains(&Tile::sou_tile(6)), true);
 
 }
+/*
+Hand:[M:6],[M:6],[P:6],[P:9],[P:9],[S:6],[S:6],
+Called Sets:[M:7],[M:8],[M:9],-[P:1],[P:2],[P:3],-
+Waiting on Tiles:
+Callable Tiles:[S:6]:{Calls { chii: false, pon: true, open_kan: false, added_kan: false, closed_kan: false, ron: false, ron_set: Set { set_type: Kan, tiles: [Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }] } }}
+
+[M:6]:{Calls { chii: false, pon: true, open_kan: false, added_kan: false, closed_kan: false, ron: false, ron_set: Set { set_type: Kan, tiles: [Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }] } }}
+
+[P:9]:{Calls { chii: false, pon: true, open_kan: false, added_kan: false, closed_kan: false, ron: false, ron_set: Set { set_type: Kan, tiles: [Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }, Tile { suit: Man, value: East, red: true }] } }}
+*/
