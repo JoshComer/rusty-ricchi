@@ -742,12 +742,12 @@ fn test_kokushi_musou()
         Tile { suit : Suit::Honor, value : SuitVal::Green, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::Red, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::One, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::One, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Nine, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile::man_tile(1),
+        Tile::man_tile(9),
+        Tile::pin_tile(1),
+        Tile::pin_tile(9),
+        Tile::sou_tile(1),
+        Tile::sou_tile(9),
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false }, // the duplicate for pair. Set as the last tile drawn, so it should be double yakuman
     );
 
@@ -780,9 +780,9 @@ fn test_daisangen()
         Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::White, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Seven, red : false },
+        Tile::pin_tile(7),
+        Tile::pin_tile(7),
+        Tile::pin_tile(7),
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
     );
@@ -824,15 +824,15 @@ fn test_suuankou()
     let mut game = Game::default();
 
     game.players[0].hand = vec!(
-        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+        Tile::man_tile(4),
+        Tile::man_tile(4),
+        Tile::man_tile(4),
+        Tile::pin_tile(2),
+        Tile::pin_tile(2),
+        Tile::pin_tile(2),
+        Tile::sou_tile(9),
+        Tile::sou_tile(9),
+        Tile::sou_tile(9),
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
@@ -852,7 +852,7 @@ fn test_suuankou()
 
     game.players[0].sort_hand();
 
-    game.players[0].last_picked_tile = Tile { suit : Suit::Man, value : SuitVal::Seven, red : false };
+    game.players[0].last_picked_tile = Tile::man_tile(7);
     game.players[0].ron_or_tsumo = (WinningMethod::Ron , 3);
     game.next_tile = 45;
 
@@ -887,9 +887,9 @@ fn test_fu_1()
     let mut winning_player = &mut game.players[1];
 
     winning_player.hand = vec!(
-        Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+        Tile::man_tile(4),
+        Tile::man_tile(5),
+        Tile::man_tile(6),
         Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::South, red : false },
     );
@@ -901,7 +901,7 @@ fn test_fu_1()
             set : Set {
             set_type : SetType::Kan,
             tiles : vec![
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false } ; 4
+                Tile::man_tile(1) ; 4
             ],
             },
             call_type : CallTypes::ClosedKan
@@ -954,9 +954,9 @@ fn test_fu_2()
     let mut winning_player = &mut game.players[0];
 
     winning_player.hand = vec!(
-        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
+        Tile::sou_tile(2),
+        Tile::sou_tile(3),
+        Tile::sou_tile(4),
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
         Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
     );
@@ -968,7 +968,7 @@ fn test_fu_2()
             set : Set {
             set_type : SetType::Kan,
             tiles : vec![
-                Tile { suit : Suit::Pin, value : SuitVal::One, red : false } ; 4
+                Tile::pin_tile(1) ; 4
             ],
             },
             call_type : CallTypes::ClosedKan
@@ -987,7 +987,7 @@ fn test_fu_2()
             set : Set {
             set_type : SetType::Kan,
             tiles : vec![
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false } ; 4
+                Tile::man_tile(9) ; 4
             ],
             },
             call_type : CallTypes::OpenKan
@@ -1019,11 +1019,11 @@ fn test_fu_open_pinfu()
     let mut winning_player = &mut game.players[0];
 
     winning_player.hand = vec!(
-        Tile { suit : Suit::Man, value : SuitVal::One, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
-        Tile { suit : Suit::Sou, value : SuitVal::Two, red : false },
+        Tile::man_tile(1),
+        Tile::man_tile(2),
+        Tile::man_tile(3),
+        Tile::sou_tile(2),
+        Tile::sou_tile(2),
     );
 
     winning_player.called_sets = vec!(
@@ -1031,9 +1031,9 @@ fn test_fu_open_pinfu()
             set : Set {
                 set_type : SetType::Sequence,
                 tiles : vec![
-                    Tile { suit : Suit::Pin, value : SuitVal::Two, red : false },
-                    Tile { suit : Suit::Pin, value : SuitVal::Three, red : false },
-                    Tile { suit : Suit::Pin, value : SuitVal::Four, red : false },
+                    Tile::pin_tile(2),
+                    Tile::pin_tile(3),
+                    Tile::pin_tile(4),
                 ],
             },
             call_type : CallTypes::Chii
@@ -1042,9 +1042,9 @@ fn test_fu_open_pinfu()
             set : Set {
                 set_type : SetType::Sequence,
                 tiles : vec![
-                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
+                    Tile::sou_tile(5),
+                    Tile::sou_tile(6),
+                    Tile::sou_tile(7),
                 ],
             },
             call_type : CallTypes::Chii
@@ -1053,16 +1053,16 @@ fn test_fu_open_pinfu()
             set : Set {
                 set_type : SetType::Sequence,
                 tiles : vec![
-                    Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
+                    Tile::sou_tile(3),
+                    Tile::sou_tile(4),
+                    Tile::sou_tile(5),
                 ],
             },
             call_type : CallTypes::Ron(SetType::Sequence)
         },
     );
 
-    winning_player.last_picked_tile = Tile { suit : Suit::Sou, value : SuitVal::Three, red : false };
+    winning_player.last_picked_tile = Tile::sou_tile(3);
     winning_player.winning_wait = Some(WaitType::Ryanmen);
 
     winning_player.ron_or_tsumo = (WinningMethod::Ron, 3);
@@ -1076,14 +1076,14 @@ fn test_fu_open_pinfu()
             set : Set {
                 set_type : SetType::Sequence,
                 tiles : vec![
-                    Tile { suit : Suit::Sou, value : SuitVal::Four, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-                    Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
+                    Tile::sou_tile(4),
+                    Tile::sou_tile(5),
+                    Tile::sou_tile(6),
                 ],
             },
             call_type : CallTypes::Tsumo
     };
-    game.players[0].last_picked_tile = Tile { suit : Suit::Sou, value : SuitVal::Six, red : false };
+    game.players[0].last_picked_tile = Tile::sou_tile(6);
     game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
 
 //    TODO Detect pinfu properly, so as to correctly give no
@@ -1135,11 +1135,11 @@ fn test_callable_tiles()
                 Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+                Tile::man_tile(2),
+                Tile::man_tile(3),
+                Tile::man_tile(4),
+                Tile::man_tile(5),
+                Tile::man_tile(6),
             ],
             ..Player::default()
         };
@@ -1167,11 +1167,11 @@ fn test_callable_tiles()
                 Tile { suit : Suit::Honor, value : SuitVal::West, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
                 Tile { suit : Suit::Honor, value : SuitVal::East, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
+                Tile::man_tile(2),
+                Tile::man_tile(3),
+                Tile::man_tile(4),
+                Tile::man_tile(5),
+                Tile::man_tile(6),
             ],
             tenpai : true,
             ..Player::default()
@@ -1195,19 +1195,15 @@ fn test_callable_tiles()
     {
         let mut player = Player {
             hand : vec![
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Four, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Nine, red : false },
+                Tile::man_tile(1), Tile::man_tile(1), Tile::man_tile(1),
+                Tile::man_tile(2),
+                Tile::man_tile(3),
+                Tile::man_tile(4),
+                Tile::man_tile(5),
+                Tile::man_tile(6),
+                Tile::man_tile(7),
+                Tile::man_tile(8),
+                Tile::man_tile(9), Tile::man_tile(9), Tile::man_tile(9),
             ],
             tenpai : true,
             ..Player::default()
@@ -1237,19 +1233,14 @@ fn test_callable_tiles()
     {
         let mut player = Player {
             hand : vec![
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Two, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Six, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Seven, red : false },
-                Tile { suit : Suit::Man, value : SuitVal::Eight, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::One, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Nine, red : false },
+                Tile::man_tile(2), Tile::man_tile(2),
+                Tile::man_tile(3), Tile::man_tile(3),
+                Tile::man_tile(6), 
+                Tile::man_tile(7), 
+                Tile::man_tile(8),
+
+                Tile::sou_tile(1), Tile::sou_tile(1), Tile::sou_tile(1),
+                Tile::sou_tile(9), Tile::sou_tile(9), Tile::sou_tile(9),
             ],
             tenpai : true,
             ..Player::default()
@@ -1285,13 +1276,13 @@ fn test_callable_tiles()
 
         let mut player = Player {
             hand : vec![
-                Tile { suit : Suit::Sou, value : SuitVal::Three, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Five, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Six, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Seven, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
-                Tile { suit : Suit::Sou, value : SuitVal::Eight, red : false },
+                Tile::sou_tile(3),
+                Tile::sou_tile(5),
+                Tile::sou_tile(6),
+                Tile::sou_tile(7),
+                Tile::sou_tile(8),
+                Tile::sou_tile(8),
+                Tile::sou_tile(8),
             ],
             tenpai : true,
             ..Player::default()
