@@ -389,7 +389,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                 else if input == "debug"
                 {
                     loop {
-                        println!("What debug option? 1 - add tile, 2 - remove tile, 'e' - exit debug mode");
+                        println!("What debug option? 1 - add tile, 2 - remove tile, 'w' - get winning hand, 'e' - exit debug mode");
                         let mut input = String::from("");
                         std::io::stdin().read_line(&mut input).expect("stdin readline failed");
                         input = input.trim().to_lowercase();
@@ -470,6 +470,25 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                                     }
                                 }
                             }
+                        }
+                        else if (input == "w")
+                        {
+                            game.players[player_idx].hand = vec![
+                                Tile::man_tile(1),
+                                Tile::man_tile(1),
+                                Tile::man_tile(1),
+                                Tile::man_tile(1),
+                                Tile::man_tile(2),
+                                Tile::man_tile(3),
+                                Tile::man_tile(4),
+                                Tile::man_tile(5),
+                                Tile::man_tile(6),
+                                Tile::man_tile(7),
+                                Tile::man_tile(8),
+                                Tile::man_tile(9),
+                                Tile::man_tile(9),
+                                Tile::man_tile(9),
+                ];
                         }
                         else if (input == "e")
                         {
@@ -601,3 +620,33 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
 
 
+pub fn output_player_win() -> ()
+{
+    let you_win_str = vec!["__   __                   __        __  _           _   _   _   _   _   _",
+                                    "\\ \\ / /   ___    _   _    \\ \\      / / (_)  _ __   | | | | | | | | | | | |",
+                                    " \\ V /   / _ \\  | | | |    \\ \\ /\\ / /  | | | \'_ \\  | | | | | | | | | | | |",
+                                    "  | |   | (_) | | |_| |     \\ V  V /   | | | | | | |_| |_| |_| |_| |_| |_|",
+                                    "  |_|    \\___/   \\__,_|      \\_/\\_/    |_| |_| |_| (_) (_) (_) (_) (_) (_)"];
+
+
+    if ! DEBUG_OUTPUT
+    {
+        clearscreen::clear().expect("Could not clear screen");
+    }
+
+    let empty_string = "";
+    let mut output_win_string_iter = std::iter::repeat(&empty_string).take(
+        (SCREEN_HEIGHT - you_win_str.len()) / 2
+    ).chain(
+        you_win_str.iter()
+    );
+
+    for i in 0..SCREEN_HEIGHT
+    {
+        println!("{: ^SCREEN_WIDTH$}", output_win_string_iter.next().unwrap_or(&empty_string));
+    }
+
+
+    let mut worthless = String::from("");
+    std::io::stdin().read_line(&mut worthless).expect("Stdin failed");
+}

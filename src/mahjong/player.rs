@@ -310,13 +310,14 @@ impl Player {
     //     return self.has_complete_hand() && self.has_yaku();
     // }
 
+    /// rotates the players wind counter clockwise (against intutition)
     pub fn rotate_wind(&mut self)
     {
         self.seat_wind = match self.seat_wind{
-            SuitVal::East => SuitVal::South,
-            SuitVal::South => SuitVal::West,
-            SuitVal::West => SuitVal::North,
-            SuitVal::North => SuitVal::East,
+            SuitVal::East => SuitVal::North,
+            SuitVal::North => SuitVal::West,
+            SuitVal::West => SuitVal::South,
+            SuitVal::South => SuitVal::East,
             _ => panic!("lkdsfj")
         };
     }
@@ -915,12 +916,23 @@ impl Player
                         for mut hand in a_set_removed_best_hands
                         {
                             hand.push(set.clone());
-
+/*
                             // remove hands which contain more than one pair TODO: Check for 7 pairs yakuman
                             if hand.iter().filter(|set| set.set_type == SetType::Pair).count() <= 1
                             {
                                 best_hands.push(hand);
                             }
+*/                            
+                            // if a hand contains more than one pair, we'll add the pairs towards the end later TODO: Check for 7 pairs yakuman
+                            // so remove them and use the pair closest to left. Otherwise we miss the leftmost pair
+                            while  hand.iter().filter(|set| set.set_type == SetType::Pair).count() > 1
+                            {
+                                let remove_idx = hand.iter().position(|set| set.set_type == SetType::Pair).unwrap();
+                                hand.remove(remove_idx);
+                            }
+                            
+                            best_hands.push(hand);
+//                            */
                         }
                     }
                     else {
@@ -964,7 +976,7 @@ impl Player
         {
             self.winning_call_tiles.push(tile);
 
-            let entry = self.callable_tiles.entry(tile).or_default();
+            let entry = self.callable_tiles.entry(tile).or_insert( Calls::default() );
             entry.ron = true;
             entry.ron_set = set;
         }
@@ -1529,6 +1541,7 @@ fn test_check_complete_hand_and_update_waits()
     player.sort_hand();
     player.check_complete_hand_and_update_waits();
 
+    println!("{:#?}", player.winning_call_tiles);
     assert_eq!(player.winning_call_tiles.contains(&Tile::man_tile(6)), true);
     assert_eq!(player.winning_call_tiles.contains(&Tile::sou_tile(6)), true);
 
