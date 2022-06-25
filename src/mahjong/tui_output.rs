@@ -182,25 +182,35 @@ pub fn output_game(game : &Game, player_idx : usize) -> ()
 
 pub fn output_row_view(game : &Game, player_idx : usize) -> ()
 {
-        let curr_player : &Player = &game.players[player_idx];
-        let right_player : &Player = &game.players[(player_idx + 1) % NUM_PLAYERS];
-        let opposite_player : &Player = &game.players[(player_idx + 2) % NUM_PLAYERS];
-        let left_player : &Player = &game.players[(player_idx + 3) % NUM_PLAYERS];
+        if ! DEBUG_OUTPUT
+        {
+            clearscreen::clear().expect("Error! Could not clear the screen");
+        }
 
-        let curr_discard_strs = mahjong_tiles_strs(&curr_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
-        let opposite_discard_strs = mahjong_tiles_strs(&opposite_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
-        let left_discard_strs = mahjong_tiles_strs(&left_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
-        let right_discard_strs = mahjong_tiles_strs(&right_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
+        // print game header
+        println!("    Round Wind: {}", game.round_wind);
+        println!("-------------------------");
+        println!();
+
 
         for i in 0..NUM_PLAYERS
         {
             let loop_player = &game.players[(player_idx + i) % NUM_PLAYERS];
-            let hand = mahjong_tiles_strs(&loop_player.hand, 1000);
+
+            // only reveal other player hands for debugging purposes
+            let hand = if ! DEBUG_OUTPUT && ! loop_player.is_human {
+                    mahjong_tiles_strs(&vec![INVALID_TILE ; loop_player.hand.len()], 1000)
+                }
+                else {
+                    mahjong_tiles_strs(&loop_player.hand, 1000)
+                };
+
+            
             let discard_pile = mahjong_tiles_strs(&loop_player.discard_pile, 1000);
 
             println!("{}  Pts:{} Wind:{}   -- Tenpai:{}    {}",
             if *loop_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { " " },
-            loop_player.points, loop_player.seat_wind, loop_player.tenpai,
+            loop_player.points, loop_player.seat_wind, if DEBUG_OUTPUT || loop_player.is_human { loop_player.tenpai.to_string() } else { String::from("N/A") },
             if loop_player.furiten { "FURITEN" } else { " " });
 
             let empty_string = String::from("");
@@ -319,11 +329,14 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
             )
         );
 
-
+        let round_wind_str = format!("Round Wind: {}", game.round_wind);
         let mut middle_discard_iter = opposite_discard_strs.iter().chain(
-            std::iter::repeat(&empty_string).take( MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len()).chain(
-                curr_discard_strs.iter()
-            )
+            std::iter::repeat(&empty_string).take( (MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len()) / 2 - 1).chain(
+                std::iter::once(&round_wind_str).chain(
+                    std::iter::repeat(&empty_string).take( (MIDDLE_HEIGHT - opposite_discard_strs.len() - curr_discard_strs.len()) / 2 - 1).chain(
+                        curr_discard_strs.iter()
+                )
+            ))
         );
 
         let mut left_discard_iter = std::iter::repeat(&empty_string).take((MIDDLE_HEIGHT - left_discard_strs.len()) / 2).chain(

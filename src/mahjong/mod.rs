@@ -12,7 +12,7 @@ pub enum OutputView {
 }
 
 const DEBUG_OUTPUT : bool = true;
-pub static OUTPUT_METHOD : OutputView = OutputView::RowView;
+pub static OUTPUT_METHOD : OutputView = OutputView::BoardView;
 
 // local imports
 
@@ -174,6 +174,41 @@ impl Default for Game
 }
 
 impl Game {
+    fn draw_from_dead_wall(&mut self) -> Tile
+    {
+        unimplemented!()
+    }
+
+    fn open_closed_kan(&mut self, player_idx : usize, kanned_tile : Tile) -> Option<usize>
+    {
+        // add kan to revealed sets
+        self.players[player_idx].hand.retain(|hand_tile| *hand_tile != kanned_tile);
+        self.players[player_idx].called_sets.push(
+            CalledSet {
+                call_type : CallTypes::ClosedKan,
+                set : Set::kan(kanned_tile),
+            }
+        );
+
+        let next_tile = self.draw_from_dead_wall();
+        self.players[player_idx].hand.push( next_tile );
+
+        let player_can_win = self.players[player_idx].check_complete_hand_and_update_waits();
+        // TODO: Rinshan Kaihou
+        
+        // draw next tile. It's illegal to kan on the last tile, so there's always a tile to draw or we've broken the rules
+        // TODO: last tile from the wall is added to dead wall here
+        let discard_or_win = tui_output::get_player_discard_idx(self, player_idx, player_can_win, false);
+
+        match discard_or_win {
+            DiscardChoices::Win => return None,
+            DiscardChoices::DiscardTile(tile_idx) => return Some(tile_idx),
+            DiscardChoices::OpenClosedKan(newly_kanned_tile) => return self.open_closed_kan(player_idx, newly_kanned_tile),
+            DiscardChoices::AddedKan(sdlkfj) => unimplemented!()
+        }
+        
+    }
+
     fn reveal_dora(&mut self) -> ()
     {
         if self.dora_idx < NUM_GAME_TILES
@@ -296,7 +331,23 @@ impl Game {
         }
     }
 
-    fn player_choose_discard_or_win(&mut self, player_idx : usize) -> Option<Tile>
+    fn player_discard_tile(&mut self, player_idx : usize, discard_idx : usize) -> Tile
+    {
+        if DEBUG_OUTPUT
+        {
+            println!("Player number {} discarded tile {}. Deck marker is {}", player_idx, discard_idx, self.next_tile);
+        }
+
+        let discarded_tile = self.players[player_idx].hand.remove(discard_idx);
+        self.players[player_idx].discard_pile.push(discarded_tile);
+        self.players[player_idx].sort_hand();
+        self.players[player_idx].update_callable_tiles();
+        self.players[player_idx].check_complete_hand_and_update_waits();
+
+        return discarded_tile;
+    }
+
+    fn player_choose_discard_idx_or_win(&mut self, player_idx : usize) -> Option<usize>
     {
         let mut discard_idx : usize;
 
@@ -319,7 +370,12 @@ impl Game {
                     self.players[player_idx].ron_or_tsumo = (WinningMethod::Tsumo, usize::MAX);
                     return None
                 },
-                DiscardChoices::OpenClosedKan(kanned_tile) => unimplemented!(),
+                DiscardChoices::OpenClosedKan(kanned_tile) => match self.open_closed_kan(player_idx, kanned_tile)
+                    {
+                        Some(idx) => discard_idx = idx,
+                        // TODO: Update winning method accordingly if needed
+                        None => return None
+                    },
                 DiscardChoices::AddedKan(kanned_tile) => unimplemented!(),
             }
         }
@@ -332,14 +388,7 @@ impl Game {
             std::io::stdin().read_line(&mut input).expect("stdin readline failed");
         }
 
-        println!("Player number {} discarded tile {}. Deck marker is {}", player_idx, discard_idx, self.next_tile);
-        let discarded_tile = self.players[player_idx].hand.remove(discard_idx);
-        self.players[player_idx].discard_pile.push(discarded_tile);
-        self.players[player_idx].sort_hand();
-        self.players[player_idx].update_callable_tiles();
-        self.players[player_idx].check_complete_hand_and_update_waits();
-
-        Some(discarded_tile)
+        return Some(discard_idx);
     }
 
 
@@ -536,25 +585,28 @@ impl Game {
 
                 // push the next tile without sorting to keep the tile on the right for display purposes
                 // since after discarding
-                let discarded_tile = self.player_choose_discard_or_win(self.curr_player_idx);
-                self.players[self.curr_player_idx].sort_hand();
-
-                // A player always discards, unless they chose to win
-                if discarded_tile.is_none()
+                let discarded_idx = self.player_choose_discard_idx_or_win(self.curr_player_idx);
+                let mut discarded_tile : Tile;                
+                if let Some(idx) = discarded_idx
                 {
-                    self.score_points(Some(self.curr_player_idx));
-                    if self.players[self.curr_player_idx].seat_wind == self.round_wind
-                    {
-                        return RepeatHand::DealerWon;
-                    }
-                    else
-                    {
-                        return RepeatHand::RotateWinds;
-                    }
+                    discarded_tile = self.player_discard_tile(self.curr_player_idx, idx);
+                }
+                else // None
+                {
+                    // A player always discards, unless they chose to win
+                        self.score_points(Some(self.curr_player_idx));
+                        if self.players[self.curr_player_idx].seat_wind == self.round_wind
+                        {
+                            return RepeatHand::DealerWon;
+                        }
+                        else
+                        {
+                            return RepeatHand::RotateWinds;
+                        }
                 }
 
-                let discarded_tile = unsafe { discarded_tile.unwrap_unchecked() };
-
+                self.players[self.curr_player_idx].sort_hand();
+                
                 let next_or_win = self.execute_call_or_advance_player(discarded_tile);
 
                 match next_or_win {

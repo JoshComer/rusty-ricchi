@@ -57,6 +57,8 @@ pub struct Player {
 
     pub ai_algorithm : AIAlgorithm,
 
+    /// starts from 1 and indicates player's position in the game's players array.
+    /// This can be found by subtracting 1 from the player number since it starts from 1
     pub player_number : usize,
 }
 
@@ -965,6 +967,7 @@ impl Player {
 
     // a "complete hand" still needs a yakuhai to be considered a winning hand
     // and not all winning hands are "complete" hands.
+    /// Returns whether a hand can win in it's current configuration
     pub fn check_complete_hand_and_update_waits(&mut self) -> bool
     {
         // needs 5 sets. 4 sequences, triplets, or kans, and 1 pair
