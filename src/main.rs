@@ -24,6 +24,7 @@ use utils::print_game_state;
 
 fn main(){
     let mut game = Game::default();
+    game.human_is_playing = true;
     game.play_game(2);
 
 

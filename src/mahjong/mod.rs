@@ -52,6 +52,8 @@ const NUM_GAME_TILES : usize = 136;
 
 #[allow(dead_code)]
 pub struct Game {
+    pub human_is_playing : bool,
+    
     tiles : [Tile; NUM_GAME_TILES],
     pub next_tile : usize,
 
@@ -72,6 +74,8 @@ impl Default for Game
     fn default() -> Self {
 
         let mut new_game = Game {
+            human_is_playing : false,
+
             player_just_called : false,
 
             round_wind : SuitVal::East,
@@ -157,10 +161,10 @@ impl Default for Game
             next_tile : 0,
 
             players : [
-                Player::default().set_is_human().to_owned(),
-                Player::default().set_seat_wind(SuitVal::South).to_owned(),
-                Player::default().set_seat_wind(SuitVal::West).to_owned(),
-                Player::default().set_seat_wind(SuitVal::North).to_owned(),
+                Player::default().set_seat_wind(SuitVal::East).set_number(0).set_is_human().to_owned(),
+                Player::default().set_seat_wind(SuitVal::South).set_number(1).to_owned(),
+                Player::default().set_seat_wind(SuitVal::West).set_number(2).to_owned(),
+                Player::default().set_seat_wind(SuitVal::North).set_number(3).to_owned(),
             ],
         };
 
@@ -359,10 +363,10 @@ impl Game {
         {
             if self.players[winning_player_idx].is_human
             {
-                tui_output::output_player_win_or_lose(&self.players[winning_player_idx]);
+                tui_output::output_player_win_or_lose(&self.players[winning_player_idx], self.human_is_playing);
             }
             else {
-                tui_output::output_player_win_or_lose(&self.players[winning_player_idx]);
+                tui_output::output_player_win_or_lose(&self.players[winning_player_idx], self.human_is_playing);
             }
         }
 

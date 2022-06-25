@@ -554,7 +554,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                         {
                             game.players[player_idx].furiten = !game.players[player_idx].furiten;
                         }
-                        else if (input == "w")
+                        else if input == "w"
                         {
                             game.players[player_idx].hand = vec![
                                 Tile::man_tile(1),
@@ -573,7 +573,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                                 Tile::man_tile(9),
                 ];
                         }
-                        else if (input == "e")
+                        else if input == "e"
                         {
                             output_game(game, player_idx);
                             break;
@@ -703,7 +703,7 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
 
 
-pub fn output_player_win_or_lose(winning_player : &Player) -> ()
+pub fn output_player_win_or_lose(winning_player : &Player, human_is_playing : bool) -> ()
 {
     let you_win_str = vec!["__   __                   __        __  _           _   _   _   _   _   _",
                                     "\\ \\ / /   ___    _   _    \\ \\      / / (_)  _ __   | | | | | | | | | | | |",
@@ -763,6 +763,9 @@ pub fn output_player_win_or_lose(winning_player : &Player) -> ()
     }
 
 
-    let mut worthless = String::from("");
-    std::io::stdin().read_line(&mut worthless).expect("Stdin failed");
+    if human_is_playing
+    {
+        let mut worthless = String::from("");
+        std::io::stdin().read_line(&mut worthless).expect("Stdin failed");
+    }
 }

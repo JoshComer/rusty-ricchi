@@ -56,6 +56,8 @@ pub struct Player {
     pub ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
 
     pub ai_algorithm : AIAlgorithm,
+
+    pub player_number : usize,
 }
 
 struct PlayerTileIter <'a>{
@@ -121,6 +123,8 @@ impl <'a> Iterator for PlayerTileIter<'a> {
 impl Default for Player {
     fn default() -> Self {
         return Player {
+            player_number : usize::MAX,
+
             hand : vec![INVALID_TILE; PLAYER_HAND_SIZE],
             last_picked_tile : INVALID_TILE,
             called_sets : Vec::new(),
@@ -152,6 +156,12 @@ impl Default for Player {
 }
 
 impl Player {
+    pub fn set_number(&mut self, number : usize) -> &mut Self
+    {
+        self.player_number = number;
+        self
+    }
+
     pub fn ai_call(&self, discard_tile : Tile) -> Option<CalledSet>
     {
         match self.ai_algorithm {
