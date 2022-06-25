@@ -54,6 +54,8 @@ pub struct Player {
 
     pub winning_wait : Option<WaitType>,
     pub ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
+
+    pub ai_algorithm : AIAlgorithm,
 }
 
 struct PlayerTileIter <'a>{
@@ -143,11 +145,94 @@ impl Default for Player {
 
             winning_wait : None,
             ron_or_tsumo : (WinningMethod::NotWonYet, 42),
+
+            ai_algorithm : AIAlgorithm::SimpleDiscardAlwaysCall,
         };
     }
 }
 
 impl Player {
+    pub fn ai_call(&self, discard_tile : Tile) -> Option<CalledSet>
+    {
+        None
+    }
+
+    pub fn ai_discard(&self) -> usize
+    {
+        match self.ai_algorithm {
+            AIAlgorithm::DumbAsBricks => return 0,
+
+            AIAlgorithm::SimpleDiscardAlwaysCall => {
+                // if we decide to keep tiles, we remove them from this vector. This contains the tiles to pick from randomly to discard
+                // at the end of the algorithm
+                let mut hand_copy = self.hand.clone();
+
+                // keep honors if there's two, otherwise discard
+                let mut hand_honor_tiles = self.hand.clone();
+                hand_honor_tiles.retain(|tile| tile.suit == Suit::Honor);
+
+                for tile in hand_honor_tiles
+                {
+                    // check if there's two of them
+                    if ! self.callable_tiles.contains_key(&tile)
+                    {
+                        return self.hand.iter().position(|hand_tile| *hand_tile == tile).unwrap();
+                    }
+                    else
+                    {
+                        hand_copy.retain(|hand_tile| *hand_tile != tile);
+                    }
+                }
+
+                // keep terminals if there's two of them, or if they have the adjacent sequence number. Otherwise discard
+                let mut hand_terminal_tiles = self.hand.clone();
+                hand_terminal_tiles.retain(|tile| tile.value == SuitVal::One || tile.value == SuitVal::Nine);
+
+                for tile in hand_terminal_tiles
+                {
+                    // check if there's two of them
+                    if ! self.callable_tiles.contains_key(&tile)
+                    {
+                        // check if the hand contains an adjacent tile (if so, then chii-ing is an option)
+                        if ! numbered_tile_has_a_neighbor(tile, &self.hand)
+                        {
+                            return self.hand.iter().position(|hand_tile| *hand_tile == tile).unwrap();
+                        }
+                    }
+                    
+                    hand_copy.retain(|hand_tile| *hand_tile != tile);
+                }
+
+                // remove non-terminal number tiles without a pair or neighbor
+                for tile in hand_copy.clone()
+                {
+                    if ! self.callable_tiles.contains_key(&tile)
+                    {
+                        // due to previous logic, ALL tiles within hand_copy at this point aren't terminals
+                        if ! numbered_tile_has_a_neighbor(tile, &self.hand)
+                        {
+                            return self.hand.iter().position(|hand_tile| *hand_tile == tile).unwrap();
+                        }
+                        else
+                        {
+                            hand_copy.retain(|hand_tile| *hand_tile != tile);
+                        }
+                    }
+                }
+
+                // discard any remaining tiles which don't have pair or neighbor
+                if hand_copy.len() != 0
+                {
+                    return self.hand.iter().position(|hand_tile| *hand_tile == hand_copy[0]).unwrap();
+                }
+
+                // we must remove a tile with a pair or neighbor now
+                // TODO: Don't discard numbers part of existing sets
+                return rand::thread_rng().gen_range(0..self.hand.len());
+            }
+        }
+    }
+
     pub fn dump_player_state(&self)
     {
         print!("Hand:");
@@ -192,8 +277,14 @@ impl Player {
         }
         print!("\n");
 
-        println!("Tenpai:{}", self.tenpai);
+        print!("Tiles others called:");
+        for tile in &self.tiles_others_called
+        {
+            print!("{},", tile);
+        }
+        print!("\n");
 
+        println!("Tenpai:{} --- Furiten:{}", self.tenpai, self.furiten);
 
     }
 
@@ -847,6 +938,7 @@ impl Player {
         if most_hand_sets.len() == 0
         {
             self.tenpai = false;
+            self.furiten = false;
             return false;
         }
         else
@@ -860,9 +952,12 @@ impl Player {
             else if num_sets_in_hand + self.called_sets.len() == 4
             {
                 self.set_tenpai_true_and_update_winning_tiles(most_hand_sets);
+                self.check_and_set_furiten();
                 return false;
             }
             else {
+                self.tenpai = false;
+                self.furiten = false;
                 return false;
             }
         }
@@ -872,6 +967,27 @@ impl Player {
 
 impl Player
 {
+    pub fn check_and_set_furiten(&mut self) -> ()
+    {
+        for tile in &self.winning_call_tiles
+        {
+            if self.discard_pile.contains(&tile)
+            {
+                self.furiten = true;
+                return;
+            }
+
+            if self.tiles_others_called.contains(&tile)
+            {
+                self.furiten = true;
+                return;
+            }
+        }
+
+        self.furiten = false;
+        return;
+    }
+
     /// One of the most important functions. Determines the best possible groupings of tiles
     /// within a players hands. This function only returns hands which are the smallest number
     /// of "Sets" or tile groups away from winning. There can be multiple hands the same steps
@@ -1048,7 +1164,7 @@ impl Player
         // TODO: DONT FORGET TO SHUFFLE AND TO UPDATE CALLABLE TILES ON THIS PLAYER IF A CALL IS ACTUALLY MADE
         if ! game.players[self_index].is_human
         {
-            None
+            return game.players[self_index].ai_call(discarded_tile);
         }
         else
         {
@@ -1097,12 +1213,7 @@ impl Player
             }
             if possible_calls.ron
             {
-                println!("THERE WAS A RON");
-                 println!("THERE WAS A RON");
-                 println!("THERE WAS A RON");
-                 println!("THERE WAS A RON");
-                 println!("THERE WAS A RON");
-            all_possible_calls.push(
+                all_possible_calls.push(
                     CalledSet {
                         set : possible_calls.ron_set.clone(),
                         call_type: CallTypes::Ron(possible_calls.ron_set.set_type)
@@ -1359,7 +1470,11 @@ pub enum DiscardChoices {
     AddedKan(Tile),
 }
 
-
+#[derive(Clone, Eq, PartialEq)]
+pub enum AIAlgorithm {
+    DumbAsBricks,
+    SimpleDiscardAlwaysCall,
+}
 
 
 

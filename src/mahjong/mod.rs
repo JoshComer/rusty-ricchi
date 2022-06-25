@@ -6,7 +6,13 @@ use rand::{Rng, rngs::adapter::ReseedingRng};
 use unicode_segmentation::UnicodeSegmentation;
 use num::{pow, bigint::ParseBigIntError, One};
 
+pub enum OutputView {
+    BoardView,
+    RowView,
+}
+
 const DEBUG_OUTPUT : bool = true;
+pub static OUTPUT_METHOD : OutputView = OutputView::RowView;
 
 // local imports
 
@@ -188,7 +194,7 @@ impl Game {
         let mut calls_made : Vec<(usize, CalledSet)> = Vec::with_capacity(4);
 
         for i in 0..NUM_PLAYERS{
-            if self.players[i] != self.players[self.curr_player_idx]
+            if self.players[i] != self.players[self.curr_player_idx] && self.players[i].furiten == false
             {
                 println!("Checking if player {} needs tile {}. Their callable_tiles len is {}", i, discarded_tile, self.players[i].callable_tiles.len());
                 if self.players[i].callable_tiles.contains_key(&discarded_tile)
@@ -251,6 +257,7 @@ impl Game {
             {
                 let call = &calls_made[0];
                 self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
+                self.players[self.curr_player_idx].tiles_others_called.push(discarded_tile);
                 // switch to the player who made the call
                 return match call.1.call_type
                 {
@@ -270,6 +277,7 @@ impl Game {
 
             let call = &calls_made[0];
             self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
+            self.players[self.curr_player_idx].tiles_others_called.push(discarded_tile);
             
             return match call.1.call_type
             {
@@ -314,10 +322,10 @@ impl Game {
         // computer picks which to discard
         else
         {
+            discard_idx = self.players[player_idx].ai_discard();
             tui_output::output_player_perspective(self, 0);
             let mut input = String::from("");
             std::io::stdin().read_line(&mut input).expect("stdin readline failed");
-            discard_idx = 0;
         }
 
         println!("Player number {} discarded tile {}. Deck marker is {}", player_idx, discard_idx, self.next_tile);
@@ -487,6 +495,8 @@ impl Game {
             player.called_sets.clear();
             player.winning_call_tiles.clear();
             player.callable_tiles.clear();
+
+            player.update_callable_tiles();
         }
     }
 

@@ -47,6 +47,8 @@ const SCREEN_MID_WIDTH_THIRD : usize = SCREEN_MID_WIDTH / 3;
 const SCREEN_MID_WIDTH_LEFT : usize = SCREEN_MID_WIDTH / 2;
 
 const SCREEN_MID_WIDTH_THIRD_MINUS_ONE : usize = SCREEN_MID_WIDTH_THIRD - 1;
+const SCREEN_MID_WIDTH_MINUS_FURITEN_LEN_TWICE : usize = SCREEN_MID_WIDTH - 14;
+const FURITEN_LEN : usize = 7;
 
 const TILES_IN_DISCARD_ROW : usize = 7;
 
@@ -166,9 +168,33 @@ fn mahjong_tiles_strs(tile_vec : & Vec<Tile>, line_width : usize)-> Vec<String>
 
 
 
+pub fn output_game(game : &Game, player_idx : usize) -> ()
+{
+    if let OutputView::BoardView = crate::mahjong::OUTPUT_METHOD
+    {
+        output_player_perspective(game, player_idx);
+    }
+    else
+    {
+        output_row_view(game, player_idx);
+    }
+}
 
+pub fn output_row_view(game : &Game, player_idx : usize) -> ()
+{
+        let curr_player : &Player = &game.players[player_idx];
+        let right_player : &Player = &game.players[(player_idx + 1) % NUM_PLAYERS];
+        let opposite_player : &Player = &game.players[(player_idx + 2) % NUM_PLAYERS];
+        let left_player : &Player = &game.players[(player_idx + 3) % NUM_PLAYERS];
 
+        let curr_discard_strs = mahjong_tiles_strs(&curr_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
+        let opposite_discard_strs = mahjong_tiles_strs(&opposite_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
+        let left_discard_strs = mahjong_tiles_strs(&left_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
+        let right_discard_strs = mahjong_tiles_strs(&right_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
 
+        println!("Pts:{} Wind:{}", curr_player.points, curr_player.seat_wind);
+
+}
 
 /// Outputs the game from the perspective of a player passed in with player_idx
 pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
@@ -305,7 +331,14 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
         let current_player_revealed_sets = &mahjong_tiles_strs(&current_player_revealed_sets, MARGIN_AND_TILE_WIDTH);
         let mut revealed_sets_iter = current_player_revealed_sets.iter();
 
-        println!("{: ^SCREEN_WIDTH$}", if *curr_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { "" });
+        println!("{: ^MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: ^MARGIN_AND_TILE_WIDTH$}", 
+            " ", 
+            format!("{: ^FURITEN_LEN$}{: ^SCREEN_MID_WIDTH_MINUS_FURITEN_LEN_TWICE$}{: ^FURITEN_LEN$}",
+                if curr_player.furiten { "FURITEN" } else { " " },
+                if *curr_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { "" },
+                " "),
+            " ");
+        
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[0], revealed_sets_iter.next().unwrap_or(&empty_string));
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[1], revealed_sets_iter.next().unwrap_or(&empty_string));
         println!("{: >MARGIN_AND_TILE_WIDTH$}{: ^SCREEN_MID_WIDTH$}{: <MARGIN_AND_TILE_WIDTH$}", " ", current_hand[2], revealed_sets_iter.next().unwrap_or(&empty_string));
@@ -389,7 +422,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                 else if input == "debug"
                 {
                     loop {
-                        println!("What debug option? 1 - add tile, 2 - remove tile, 'w' - get winning hand, 'e' - exit debug mode");
+                        println!("What debug option? 1 - add tile, 2 - remove tile, 'w' - get winning hand, 'f' - set or unset furiten, 'e' - exit debug mode");
                         let mut input = String::from("");
                         std::io::stdin().read_line(&mut input).expect("stdin readline failed");
                         input = input.trim().to_lowercase();
@@ -470,6 +503,10 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                                     }
                                 }
                             }
+                        }
+                        else if input == "f"
+                        {
+                            game.players[player_idx].furiten = !game.players[player_idx].furiten;
                         }
                         else if (input == "w")
                         {

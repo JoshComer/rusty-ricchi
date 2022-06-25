@@ -259,6 +259,21 @@ pub fn print_tiles(tiles : &[Tile], num_to_print : usize) -> ()
     println!("{}", tiles[num_to_print - 1]);
 }
 
+pub fn numbered_tile_has_a_neighbor(tile : Tile, hand : &[Tile]) -> bool
+{
+    if tile.value == SuitVal::One
+    {
+        return hand.contains(&tile.get_next_num_tile().unwrap());
+    }
+    else if tile.value == SuitVal::Nine
+    {
+        return hand.contains(&tile.get_prev_num_tile().unwrap());
+    }
+    else
+    {
+        return hand.contains(&tile.get_prev_num_tile().unwrap()) || hand.contains(&tile.get_next_num_tile().unwrap());
+    }
+}
 
 
 
