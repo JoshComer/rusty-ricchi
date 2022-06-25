@@ -703,7 +703,7 @@ pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile :
 
 
 
-pub fn output_player_win() -> ()
+pub fn output_player_win_or_lose(winning_player : &Player) -> ()
 {
     let you_win_str = vec!["__   __                   __        __  _           _   _   _   _   _   _",
                                     "\\ \\ / /   ___    _   _    \\ \\      / / (_)  _ __   | | | | | | | | | | | |",
@@ -711,46 +711,50 @@ pub fn output_player_win() -> ()
                                     "  | |   | (_) | | |_| |     \\ V  V /   | | | | | | |_| |_| |_| |_| |_| |_|",
                                     "  |_|    \\___/   \\__,_|      \\_/\\_/    |_| |_| |_| (_) (_) (_) (_) (_) (_)"];
 
+    let you_lose_str = vec!["\\ \\ / /   ___    _   _    | |       ___    ___    ___  | | | | | | | | | | | |",
+                                    " \\ V /   / _ \\  | | | |   | |      / _ \\  / __|  / _ \\ | | | | | | | | | | | |",
+                                    "  | |   | (_) | | |_| |   | |___  | (_) | \\__ \\ |  __/ |_| |_| |_| |_| |_| |_|",
+                                    "  |_|    \\___/   \\__,_|   |_____|  \\___/  |___/  \\___| (_) (_) (_) (_) (_) (_)"];
+
+
 
     if ! DEBUG_OUTPUT
     {
         clearscreen::clear().expect("Could not clear screen");
     }
+
+    let mut winning_hand = mahjong_tiles_strs(&winning_player.hand, 1000);
+    let mut winning_sets = vec![];
+    for set in &winning_player.called_sets {
+        for tile in &set.set.tiles {
+            winning_sets.push(tile.clone());
+        }
+        winning_sets.push(INVALID_TILE);
+    }
+    let winning_sets = mahjong_tiles_strs(&winning_sets, 1000);
+
+    for i in 0..winning_sets.len()
+    {
+        winning_hand[i].push_str("   ");
+        winning_hand[i].push_str(winning_sets[i].as_str());
+    }
+
+    let winning_hand : Vec<&str> = winning_hand.iter().map(|string| string.as_str()).collect();
 
     let empty_string = "";
     let mut output_win_string_iter = std::iter::repeat(&empty_string).take(
         (SCREEN_HEIGHT - you_win_str.len()) / 2
     ).chain(
-        you_win_str.iter()
-    );
-
-    for i in 0..SCREEN_HEIGHT
-    {
-        println!("{: ^SCREEN_WIDTH$}", output_win_string_iter.next().unwrap_or(&empty_string));
-    }
-
-
-    let mut worthless = String::from("");
-    std::io::stdin().read_line(&mut worthless).expect("Stdin failed");
-}
-
-pub fn output_player_loss() -> ()
-{
-    let you_lose_str = vec!["\\ \\ / /   ___    _   _    | |       ___    ___    ___  | | | | | | | | | | | |",
-                            " \\ V /   / _ \\  | | | |   | |      / _ \\  / __|  / _ \\ | | | | | | | | | | | |",
-                            "  | |   | (_) | | |_| |   | |___  | (_) | \\__ \\ |  __/ |_| |_| |_| |_| |_| |_|",
-                            "  |_|    \\___/   \\__,_|   |_____|  \\___/  |___/  \\___| (_) (_) (_) (_) (_) (_)"];
-
-    if ! DEBUG_OUTPUT
-    {
-        clearscreen::clear().expect("Could not clear screen");
-    }
-
-    let empty_string = "";
-    let mut output_win_string_iter = std::iter::repeat(&empty_string).take(
-        (SCREEN_HEIGHT - you_lose_str.len()) / 2
-    ).chain(
-        you_lose_str.iter()
+        (if winning_player.is_human { you_win_str.iter() } else { you_lose_str.iter() }).chain(
+            std::iter::once(&empty_string).chain(
+                std::iter::once(&"The winning had was").chain(
+                    std::iter::once(&"----------------------").chain
+                    (
+                        winning_hand.iter()
+                    )
+                )
+            )
+            )
     );
 
     for i in 0..SCREEN_HEIGHT

@@ -359,10 +359,10 @@ impl Game {
         {
             if self.players[winning_player_idx].is_human
             {
-                tui_output::output_player_win();
+                tui_output::output_player_win_or_lose(&self.players[winning_player_idx]);
             }
             else {
-                tui_output::output_player_loss();
+                tui_output::output_player_win_or_lose(&self.players[winning_player_idx]);
             }
         }
 
