@@ -154,7 +154,40 @@ impl Default for Player {
 impl Player {
     pub fn ai_call(&self, discard_tile : Tile) -> Option<CalledSet>
     {
-        None
+        match self.ai_algorithm {
+            AIAlgorithm::DumbAsBricks => return None,
+            
+            AIAlgorithm::SimpleDiscardAlwaysCall => {
+                let possible_calls = self.callable_tiles.get(&discard_tile).unwrap();
+
+                if possible_calls.ron == true {
+                    return Some(CalledSet {
+                        call_type : CallTypes::Ron(possible_calls.ron_set.set_type),
+                        set : possible_calls.ron_set.clone(),
+                    })
+                }
+                else if possible_calls.open_kan {
+                    return Some(CalledSet {
+                        call_type : CallTypes::OpenKan,
+                        set : Set::kan(discard_tile)
+                    })
+                }
+                else if possible_calls.pon {
+                    return Some(CalledSet {
+                        call_type : CallTypes::Pon,
+                        set : Set::triplet(discard_tile)
+                    })
+                }
+                else if possible_calls.chii {
+                    let chiiable_sets = get_callable_chii_combinations_with_tile(&self.hand, discard_tile);
+                    return Some(chiiable_sets[0].clone());
+                }
+                else
+                {
+                    return None;
+                }
+            }
+        }
     }
 
     pub fn ai_discard(&self) -> usize
@@ -1220,7 +1253,7 @@ impl Player
                     });
             }
 
-            tui_output::output_player_perspective(game, self_index);
+            tui_output::output_game(game, self_index);
             let call_made = tui_output::get_player_call_choice(game, self_index, discarded_tile, &mut all_possible_calls);
 
             return call_made;

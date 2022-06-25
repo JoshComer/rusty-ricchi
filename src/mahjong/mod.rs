@@ -306,7 +306,7 @@ impl Game {
             self.players[player_idx].hand = player_current_hand; // checking for a complete hand requires it be sorted
                                                                 // but we want the newest drawn tile to be shown to the right for discarding purposes
 
-            tui_output::output_player_perspective(self, player_idx);
+            tui_output::output_game(self, player_idx);
             let discard_choice = tui_output::get_player_discard_idx(self, player_idx, player_can_win, false);
 
             match discard_choice {
@@ -323,7 +323,7 @@ impl Game {
         else
         {
             discard_idx = self.players[player_idx].ai_discard();
-            tui_output::output_player_perspective(self, 0);
+            tui_output::output_game(self, 0);
             let mut input = String::from("");
             std::io::stdin().read_line(&mut input).expect("stdin readline failed");
         }
@@ -360,7 +360,10 @@ impl Game {
             if self.players[winning_player_idx].is_human
             {
                 tui_output::output_player_win();
-            }        
+            }
+            else {
+                tui_output::output_player_loss();
+            }
         }
 
         const EXHAUSTIVE_DRAW_POINTS : i32 = 3000;

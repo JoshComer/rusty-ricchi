@@ -333,6 +333,12 @@ impl Set {
         Set { set_type: SetType::Triplet, tiles: vec![tile ; 3] }
     }
 
+    /// constructs a kan from the given tile
+    pub fn kan(tile : Tile) -> Set
+    {
+        Set { set_type : SetType::Kan, tiles : vec![tile ; 4]}
+    }
+
     /// autodetects what type of set the tiles should be in and autogenerates it.
     pub fn from_tiles(tiles : &[Tile]) -> Set
     {

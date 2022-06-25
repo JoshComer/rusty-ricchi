@@ -192,8 +192,54 @@ pub fn output_row_view(game : &Game, player_idx : usize) -> ()
         let left_discard_strs = mahjong_tiles_strs(&left_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
         let right_discard_strs = mahjong_tiles_strs(&right_player.discard_pile, TILES_IN_DISCARD_ROW * 10);
 
-        println!("Pts:{} Wind:{}", curr_player.points, curr_player.seat_wind);
+        for i in 0..NUM_PLAYERS
+        {
+            let loop_player = &game.players[(player_idx + i) % NUM_PLAYERS];
+            let hand = mahjong_tiles_strs(&loop_player.hand, 1000);
+            let discard_pile = mahjong_tiles_strs(&loop_player.discard_pile, 1000);
 
+            println!("{}  Pts:{} Wind:{}   -- Tenpai:{}    {}",
+            if *loop_player == game.players[game.curr_player_idx] { ACTIVE_PLAYER_MARKER } else { " " },
+            loop_player.points, loop_player.seat_wind, loop_player.tenpai,
+            if loop_player.furiten { "FURITEN" } else { " " });
+
+            let empty_string = String::from("");
+            if loop_player.is_human
+            {
+                let mut numbers = String::from("");
+                for i in 1..(loop_player.hand.len() + 1) {    numbers.push_str(&format!(" {: <2} ", i));    }
+                println!("         {}", numbers);
+            }
+
+            println!("         {}", hand.get(0).unwrap_or(&empty_string));
+            println!("Hand:    {}", hand.get(1).unwrap_or(&empty_string));
+            println!("         {}", hand.get(2).unwrap_or(&empty_string));
+
+            println!("         {}", discard_pile.get(0).unwrap_or(&empty_string));
+            println!("Discard: {}", discard_pile.get(1).unwrap_or(&empty_string));
+            println!("         {}", discard_pile.get(2).unwrap_or(&empty_string));
+
+            let mut loop_player_revealed_sets = vec![];
+
+            for set in &loop_player.called_sets {
+                for item in &set.set.tiles {
+                    loop_player_revealed_sets.push(item.clone());
+                }
+
+                loop_player_revealed_sets.push(INVALID_TILE);
+            }
+
+            let loop_player_revealed_sets = &mahjong_tiles_strs(&loop_player_revealed_sets, 1000);
+
+            println!("         {}", loop_player_revealed_sets.get(0).unwrap_or(&empty_string));
+            println!("Opened:  {}", loop_player_revealed_sets.get(1).unwrap_or(&empty_string));
+            println!("         {}", loop_player_revealed_sets.get(2).unwrap_or(&empty_string));
+
+
+
+            print!("\n");
+
+        }
 }
 
 /// Outputs the game from the perspective of a player passed in with player_idx
@@ -367,7 +413,7 @@ pub fn output_player_perspective(game : &Game, player_idx : usize) -> ()
 pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_win : bool, player_can_close_kan : bool) -> DiscardChoices
 {
             game.dump_game_state();
-            output_player_perspective(game, player_idx);
+            output_game(game, player_idx);
 
             let mut input = String::from("");
 
@@ -384,7 +430,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                     }
                     else if input == "n"
                     {
-                        output_player_perspective(game, player_idx);
+                        output_game(game, player_idx);
                         break;
                     }
                     else
@@ -433,7 +479,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                         {
                             if input_as_num == 1
                             {
-                                output_player_perspective(game, player_idx);
+                                output_game(game, player_idx);
                                 println!("Enter tile to add in this format: {{h:ea}} - honor east wind tile. {{m:3}} 3 man tile (red not supported)");
                                 let mut input = String::from("");
                                 std::io::stdin().read_line(&mut input).expect("Reading in from stdin failed");
@@ -484,7 +530,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                             }
                             else if input_as_num == 2
                             {
-                                output_player_perspective(game, player_idx);
+                                output_game(game, player_idx);
                                 println!("Enter tile to remove by index");
                                 let mut input = String::from("");
                                 std::io::stdin().read_line(&mut input).expect("Reading in from stdin failed");
@@ -496,7 +542,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                                     if input_as_num <= game.players[player_idx].hand.len() && input_as_num != 0
                                     {
                                         game.players[player_idx].hand.remove(input_as_num - 1);
-                                        output_player_perspective(game, player_idx);
+                                        output_game(game, player_idx);
                                     }
                                     else {
                                         println!("Invalid index for removal {}", input_as_num);
@@ -529,16 +575,16 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
                         }
                         else if (input == "e")
                         {
-                            output_player_perspective(game, player_idx);
+                            output_game(game, player_idx);
                             break;
                         }
 
-                        output_player_perspective(game, player_idx);
+                        output_game(game, player_idx);
                     }
                 }
                 else
                 {
-                    output_player_perspective(game, player_idx);
+                    output_game(game, player_idx);
                     println!("Enter a tile to discard!");
                 }
 
@@ -553,7 +599,7 @@ pub fn get_player_discard_idx(game : &mut Game, player_idx : usize, player_can_w
 pub fn get_player_call_choice(game : &Game, player_idx : usize, discarded_tile : Tile, all_possible_calls : &Vec<CalledSet>) -> Option<CalledSet>
 {
     game.dump_game_state();
-    output_player_perspective(game, player_idx);
+    output_game(game, player_idx);
     // we need to calculate how many tile spaces to show to the player so they can choose which set to call on
     // we will insert an empty tile in between every set for spacing
     let mut num_tiles_to_display : usize = 0;
@@ -676,6 +722,35 @@ pub fn output_player_win() -> ()
         (SCREEN_HEIGHT - you_win_str.len()) / 2
     ).chain(
         you_win_str.iter()
+    );
+
+    for i in 0..SCREEN_HEIGHT
+    {
+        println!("{: ^SCREEN_WIDTH$}", output_win_string_iter.next().unwrap_or(&empty_string));
+    }
+
+
+    let mut worthless = String::from("");
+    std::io::stdin().read_line(&mut worthless).expect("Stdin failed");
+}
+
+pub fn output_player_loss() -> ()
+{
+    let you_lose_str = vec!["\\ \\ / /   ___    _   _    | |       ___    ___    ___  | | | | | | | | | | | |",
+                            " \\ V /   / _ \\  | | | |   | |      / _ \\  / __|  / _ \\ | | | | | | | | | | | |",
+                            "  | |   | (_) | | |_| |   | |___  | (_) | \\__ \\ |  __/ |_| |_| |_| |_| |_| |_|",
+                            "  |_|    \\___/   \\__,_|   |_____|  \\___/  |___/  \\___| (_) (_) (_) (_) (_) (_)"];
+
+    if ! DEBUG_OUTPUT
+    {
+        clearscreen::clear().expect("Could not clear screen");
+    }
+
+    let empty_string = "";
+    let mut output_win_string_iter = std::iter::repeat(&empty_string).take(
+        (SCREEN_HEIGHT - you_lose_str.len()) / 2
+    ).chain(
+        you_lose_str.iter()
     );
 
     for i in 0..SCREEN_HEIGHT
