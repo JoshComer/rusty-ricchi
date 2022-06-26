@@ -53,7 +53,7 @@ pub struct Player {
     pub iipatsu : bool,
 
     pub winning_wait : Option<WaitType>,
-    pub ron_or_tsumo : (WinningMethod, usize), // usize contains index to player that was ron'd
+    pub ron_or_tsumo : WinningMethod,
 
     pub ai_algorithm : AIAlgorithm,
 
@@ -150,7 +150,7 @@ impl Default for Player {
             is_human : false,
 
             winning_wait : None,
-            ron_or_tsumo : (WinningMethod::NotWonYet, 42),
+            ron_or_tsumo : WinningMethod::NotWonYet,
 
             ai_algorithm : AIAlgorithm::SimpleDiscardAlwaysCall,
         };
@@ -158,6 +158,12 @@ impl Default for Player {
 }
 
 impl Player {
+    /// returns the player's position in a game's player_list array
+    pub fn player_idx(&self) -> usize
+    {
+        self.player_number - 1
+    }
+
     pub fn set_number(&mut self, number : usize) -> &mut Self
     {
         self.player_number = number;
@@ -168,7 +174,7 @@ impl Player {
     {
         match self.ai_algorithm {
             AIAlgorithm::DumbAsBricks => return None,
-            
+
             AIAlgorithm::SimpleDiscardAlwaysCall => {
                 let possible_calls = self.callable_tiles.get(&discard_tile).unwrap();
 
@@ -244,7 +250,7 @@ impl Player {
                             return self.hand.iter().position(|hand_tile| *hand_tile == tile).unwrap();
                         }
                     }
-                    
+
                     hand_copy.retain(|hand_tile| *hand_tile != tile);
                 }
 
@@ -716,14 +722,14 @@ impl Player {
 
         // add fu for ron or tsumo
         fu +=   match self.ron_or_tsumo {
-                    (WinningMethod::NotWonYet, _) => 0,
-                    (WinningMethod::Ron, _) => {
+                    WinningMethod::NotWonYet => 0,
+                    WinningMethod::Ron(_) => {
                         if self.hand_is_closed()
                         { 10 }
                         else
                         { 0 }
                     },
-                    (WinningMethod::Tsumo, _) => {
+                    WinningMethod::Tsumo => {
                         if scoring::yaku_pinfu(&self, game) != 0
                         { 0 }
                         else
@@ -1084,7 +1090,7 @@ impl Player
                             {
                                 best_hands.push(hand);
                             }
-*/                            
+*/
                             // if a hand contains more than one pair, we'll add the pairs towards the end later TODO: Check for 7 pairs yakuman
                             // so remove them and use the pair closest to left. Otherwise we miss the leftmost pair
                             while  hand.iter().filter(|set| set.set_type == SetType::Pair).count() > 1
@@ -1092,7 +1098,7 @@ impl Player
                                 let remove_idx = hand.iter().position(|set| set.set_type == SetType::Pair).unwrap();
                                 hand.remove(remove_idx);
                             }
-                            
+
                             best_hands.push(hand);
 //                            */
                         }
@@ -1504,10 +1510,10 @@ impl Player
 #[derive(Clone, Eq, PartialEq)]
 pub enum WinningMethod {
     NotWonYet,
-    Ron,
+    /// contains the index of the person we ron'd on
+    Ron(usize),
     Tsumo
 }
-
 
 pub enum DiscardChoices {
     DiscardTile(usize),
@@ -1686,7 +1692,7 @@ fn test_check_complete_hand_and_update_waits()
         called_sets : vec![
             CalledSet {
                 call_type : CallTypes::Chii,
-                set : Set::from_tiles(&vec![ Tile::man_tile(7), Tile::man_tile(8), Tile::man_tile(9)]), 
+                set : Set::from_tiles(&vec![ Tile::man_tile(7), Tile::man_tile(8), Tile::man_tile(9)]),
             },
             CalledSet {
                 call_type : CallTypes::Chii,

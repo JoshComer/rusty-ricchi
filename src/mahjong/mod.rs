@@ -1,5 +1,6 @@
 use std::io::Repeat;
 
+
 //pub mod game_structs {
 use strum::IntoEnumIterator;
 use rand::{Rng, rngs::adapter::ReseedingRng};
@@ -50,42 +51,100 @@ pub enum NextPlayerOrWin {
 
 const NUM_GAME_TILES : usize = 136;
 
+pub struct GameTiles {
+    tiles : [Tile; NUM_GAME_TILES],
+    pub next_tile : usize,
+
+    dora_idx : usize,
+    ura_dora_idx : usize,
+}
+
+impl GameTiles {
+    fn draw_next_tile(&mut self) -> Option<Tile>
+    {
+        if self.next_tile >= self.dora_idx
+        {
+            return None;
+        }
+        else
+        {
+            self.next_tile += 1;
+
+            return Some(self.tiles[self.next_tile - 1]);
+        }
+    }
+}
+
+pub struct GameData {
+    pub human_is_playing : bool,
+
+    pub num_called_tiles : usize,
+
+    round_wind : SuitVal,
+    player_just_called : bool,
+}
+
+pub struct GamePlayers {
+    curr_player_idx : usize,
+    player_list : [Player; NUM_PLAYERS],
+}
+
+impl GamePlayers {
+    fn current_player(&mut self) -> &mut Player
+    {
+        &mut self.player_list[self.curr_player_idx]
+    }
+}
+
 #[allow(dead_code)]
 pub struct Game {
-    pub human_is_playing : bool,
-    
+//    walls   : GameTiles,
+//    data    : GameData,
+//    players : GamePlayers,
+
     tiles : [Tile; NUM_GAME_TILES],
     pub next_tile : usize,
 
     dora_idx : usize,
     ura_dora_idx : usize,
 
-    pub num_called_tiles : usize,
-
     curr_player_idx : usize,
     players : [Player; NUM_PLAYERS],
 
+    pub human_is_playing : bool,
+
+    pub num_called_tiles : usize,
+
     round_wind : SuitVal,
     player_just_called : bool,
+
+
 }
 
-impl Default for Game
-{
+impl Default for Game {
     fn default() -> Self {
+        Game {
+//            data : GameData {
+                human_is_playing : false,
+                player_just_called : false,
+                round_wind : SuitVal::East,
+                num_called_tiles : 0,
+//            },
 
-        let mut new_game = Game {
-            human_is_playing : false,
+//            players : GamePlayers {
+                curr_player_idx : usize::MAX,
+                players : [
+                    Player::default().set_seat_wind(SuitVal::East).set_number(0).set_is_human().to_owned(),
+                    Player::default().set_seat_wind(SuitVal::South).set_number(1).to_owned(),
+                    Player::default().set_seat_wind(SuitVal::West).set_number(2).to_owned(),
+                    Player::default().set_seat_wind(SuitVal::North).set_number(3).to_owned(),
+                ],
+//            },
 
-            player_just_called : false,
-
-            round_wind : SuitVal::East,
-
-            num_called_tiles : 0,
+//            walls : GameTiles {
 
             dora_idx : NUM_GAME_TILES - 14,
             ura_dora_idx : NUM_GAME_TILES - 7,
-
-            curr_player_idx : usize::MAX,
 
             tiles : [
                 Tile::man_tile(1), Tile::man_tile(1), Tile::man_tile(1), Tile::man_tile(1),
@@ -159,21 +218,39 @@ impl Default for Game
             ],
 
             next_tile : 0,
-
-            players : [
-                Player::default().set_seat_wind(SuitVal::East).set_number(0).set_is_human().to_owned(),
-                Player::default().set_seat_wind(SuitVal::South).set_number(1).to_owned(),
-                Player::default().set_seat_wind(SuitVal::West).set_number(2).to_owned(),
-                Player::default().set_seat_wind(SuitVal::North).set_number(3).to_owned(),
-            ],
-        };
-
-
-        return new_game;
+//            }
+        }
     }
 }
 
 impl Game {
+    fn current_player(&mut self) -> &mut Player
+    {
+        &mut self.players[self.curr_player_idx]
+    }
+
+
+    fn draw_next_tile(&mut self) -> Option<Tile>
+    {
+        if self.next_tile >= self.dora_idx
+        {
+            return None;
+        }
+        else
+        {
+            self.next_tile += 1;
+
+            return Some(self.tiles[self.next_tile - 1]);
+        }
+    }
+
+
+    /// returns the position of the human player within the player_list
+    fn human_player_position(&self) -> usize
+    {
+        0
+    }
+
     fn draw_from_dead_wall(&mut self) -> Tile
     {
         unimplemented!()
@@ -195,18 +272,19 @@ impl Game {
 
         let player_can_win = self.players[player_idx].check_complete_hand_and_update_waits();
         // TODO: Rinshan Kaihou
-        
+
         // draw next tile. It's illegal to kan on the last tile, so there's always a tile to draw or we've broken the rules
         // TODO: last tile from the wall is added to dead wall here
         let discard_or_win = tui_output::get_player_discard_idx(self, player_idx, player_can_win, false);
 
         match discard_or_win {
+
             DiscardChoices::Win => return None,
             DiscardChoices::DiscardTile(tile_idx) => return Some(tile_idx),
             DiscardChoices::OpenClosedKan(newly_kanned_tile) => return self.open_closed_kan(player_idx, newly_kanned_tile),
             DiscardChoices::AddedKan(sdlkfj) => unimplemented!()
         }
-        
+
     }
 
     fn reveal_dora(&mut self) -> ()
@@ -277,7 +355,7 @@ impl Game {
         {
             self.player_just_called = true;
             // remove the discarded tile from the discarder's pile
-            self.players[self.curr_player_idx].discard_pile.pop();
+            self.current_player().discard_pile.pop();
 
             let highest_call_precedence = calls_made.iter().max_by_key(
                 |call| call.1.call_type.precedence()
@@ -296,12 +374,12 @@ impl Game {
             {
                 let call = &calls_made[0];
                 self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
-                self.players[self.curr_player_idx].tiles_others_called.push(discarded_tile);
+                self.current_player().tiles_others_called.push(discarded_tile);
                 // switch to the player who made the call
                 return match call.1.call_type
                 {
                     CallTypes::Ron(set) => {
-                        self.players[call.0].ron_or_tsumo = (WinningMethod::Ron, self.curr_player_idx);
+                        self.players[call.0].ron_or_tsumo = WinningMethod::Ron(self.curr_player_idx);
                         NextPlayerOrWin::Winner(call.0)
                     },
                     _ => NextPlayerOrWin::NextPlayer(call.0)
@@ -312,12 +390,12 @@ impl Game {
         {
             self.player_just_called = true;
              // remove the discarded tile from the discarder's pile
-            self.players[self.curr_player_idx].discard_pile.pop();
+            self.current_player().discard_pile.pop();
 
             let call = &calls_made[0];
             self.players[call.0].open_tiles_with_call(discarded_tile, call.1.clone());
-            self.players[self.curr_player_idx].tiles_others_called.push(discarded_tile);
-            
+            self.current_player().tiles_others_called.push(discarded_tile);
+
             return match call.1.call_type
             {
                 CallTypes::Ron(set) => NextPlayerOrWin::Winner(call.0),
@@ -350,24 +428,26 @@ impl Game {
     fn player_choose_discard_idx_or_win(&mut self, player_idx : usize) -> Option<usize>
     {
         let mut discard_idx : usize;
+        let mut player = &mut self.players[player_idx];
 
         // make a choice on winning or which tile to discard
-        if self.players[player_idx].is_human
+        if player.is_human
         {
             // TODO: Maybe move this part to the tui function? Haven't added in win condition output functionality yet
-            let player_current_hand = self.players[player_idx].hand.clone();
-            self.players[player_idx].sort_hand();
-            let player_can_win : bool = self.players[player_idx].check_complete_hand_and_update_waits();
-            self.players[player_idx].hand = player_current_hand; // checking for a complete hand requires it be sorted
+            let player_current_hand = player.hand.clone();
+            player.sort_hand();
+            let player_can_win : bool = player.check_complete_hand_and_update_waits();
+            player.hand = player_current_hand; // checking for a complete hand requires it be sorted
                                                                 // but we want the newest drawn tile to be shown to the right for discarding purposes
 
             tui_output::output_game(self, player_idx);
             let discard_choice = tui_output::get_player_discard_idx(self, player_idx, player_can_win, false);
+            let player = &mut self.players[player_idx];
 
             match discard_choice {
                 DiscardChoices::DiscardTile(idx) => discard_idx = idx,
                 DiscardChoices::Win => {
-                    self.players[player_idx].ron_or_tsumo = (WinningMethod::Tsumo, usize::MAX);
+                    player.ron_or_tsumo = WinningMethod::Tsumo;
                     return None
                 },
                 DiscardChoices::OpenClosedKan(kanned_tile) => match self.open_closed_kan(player_idx, kanned_tile)
@@ -382,8 +462,8 @@ impl Game {
         // computer picks which to discard
         else
         {
-            discard_idx = self.players[player_idx].ai_discard();
-            tui_output::output_game(self, 0);
+            discard_idx = player.ai_discard();
+            tui_output::output_game(self, self.human_player_position());
             let mut input = String::from("");
             std::io::stdin().read_line(&mut input).expect("stdin readline failed");
         }
@@ -391,20 +471,6 @@ impl Game {
         return Some(discard_idx);
     }
 
-
-    fn draw_next_tile(&mut self) -> Option<Tile>
-    {
-        if self.next_tile >= self.dora_idx
-        {
-            return None;
-        }
-        else
-        {
-            self.next_tile += 1;
-
-            return Some(self.tiles[self.next_tile - 1]);
-        }
-    }
 
     fn score_points(&mut self, winning_player_idx : Option<usize>) -> ()
     {
@@ -456,7 +522,7 @@ impl Game {
                 let other_players = self.players.iter().filter(|player| player.seat_wind != self.players[winning_player_idx].seat_wind);
 
                 match self.players[winning_player_idx].ron_or_tsumo {
-                    (WinningMethod::Ron, victim_index) =>  // "victim" is the player who got ron called on them
+                    WinningMethod::Ron(victim_index) =>  // "victim" is the player who got ron called on them
                         if self.players[winning_player_idx].seat_wind == SuitVal::East
                         {
                             self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
@@ -467,7 +533,7 @@ impl Game {
                             self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
                             self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
                         },
-                    (WinningMethod::Tsumo, _) =>
+                    WinningMethod::Tsumo =>
                         if self.players[winning_player_idx].seat_wind == SuitVal::East
                         {
                             for player in &mut self.players{
@@ -498,7 +564,7 @@ impl Game {
                             self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
 
                         },
-                    (_,_) => panic!("Player won, but did not have ron or tsumo set"),
+                    _ => panic!("Player won, but did not have ron or tsumo set"),
                 }
             }
         }
@@ -578,15 +644,13 @@ impl Game {
                     }
 
                     let next_tile = unsafe {next_tile.unwrap_unchecked()};
-                    self.players[self.curr_player_idx].hand.push(next_tile);
+                    self.current_player().hand.push(next_tile);
                 }
-                // commented out due to fighting the borrow checker
-                //  let curr_player = &mut self.players[curr_player_idx];
 
                 // push the next tile without sorting to keep the tile on the right for display purposes
                 // since after discarding
                 let discarded_idx = self.player_choose_discard_idx_or_win(self.curr_player_idx);
-                let mut discarded_tile : Tile;                
+                let mut discarded_tile : Tile;
                 if let Some(idx) = discarded_idx
                 {
                     discarded_tile = self.player_discard_tile(self.curr_player_idx, idx);
@@ -605,18 +669,19 @@ impl Game {
                         }
                 }
 
-                self.players[self.curr_player_idx].sort_hand();
-                
+                self.current_player().sort_hand();
+
                 let next_or_win = self.execute_call_or_advance_player(discarded_tile);
 
                 match next_or_win {
                     NextPlayerOrWin::NextPlayer(next_index) => self.curr_player_idx = next_index,
                     NextPlayerOrWin::Winner(winner_index) => {
-                        self.players[winner_index].ron_or_tsumo = (WinningMethod::Ron, self.curr_player_idx);
+                        self.players[winner_index].ron_or_tsumo = WinningMethod::Ron(self.curr_player_idx);
                         self.curr_player_idx = winner_index;
                         self.score_points(Some(winner_index));
 
-                        if self.players[self.curr_player_idx].seat_wind == self.round_wind
+                        let temp_wind = self.round_wind;
+                        if self.current_player().seat_wind == temp_wind
                         {
                             return RepeatHand::DealerWon;
                         }
@@ -642,7 +707,7 @@ impl Game {
             if let RepeatHand::RotateWinds = rotate_or_stay
             {
                 times_rotated += 1;
-                
+
                 for player in &mut self.players
                 {
                     player.rotate_wind();
@@ -656,12 +721,10 @@ impl Game {
 
     pub fn play_game(&mut self, num_rounds : u8) -> ()
     {
-
         self.round_wind = SuitVal::East;
 
         for i in 0..num_rounds
         {
-
             self.play_round();
 
             // round winds change counter clockwise while player seat winds change clockwise (Weird)
@@ -737,7 +800,7 @@ fn test_scoring()
 {
     let mut game : Game = Game::default();
 
-    game.players[0].ron_or_tsumo = (WinningMethod::Ron, 1);
+    game.players[0].ron_or_tsumo = WinningMethod::Ron(1);
     game.score_points(Some(0));
 
 
@@ -770,7 +833,7 @@ fn test_kokushi_musou()
 
     game.players[0].sort_hand();
 
-    game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
+    game.players[0].ron_or_tsumo = WinningMethod::Tsumo;
     game.players[0].last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
     game.next_tile = 1;
 
@@ -818,7 +881,7 @@ fn test_daisangen()
 
     game.players[0].sort_hand();
 
-    game.players[0].ron_or_tsumo = (WinningMethod::Ron, 2);
+    game.players[0].ron_or_tsumo = WinningMethod::Ron(2);
     game.players[0].last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::Green, red : false };
     game.next_tile = 46;
 
@@ -870,7 +933,7 @@ fn test_suuankou()
     game.players[0].sort_hand();
 
     game.players[0].last_picked_tile = Tile::man_tile(7);
-    game.players[0].ron_or_tsumo = (WinningMethod::Ron , 3);
+    game.players[0].ron_or_tsumo = WinningMethod::Ron(3);
     game.next_tile = 45;
 
 
@@ -948,7 +1011,7 @@ fn test_fu_1()
     winning_player.last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
     winning_player.winning_wait = Some(WaitType::Shanpon);
 
-    winning_player.ron_or_tsumo = (WinningMethod::Ron, 0);
+    winning_player.ron_or_tsumo = WinningMethod::Ron(0);
 
     // test without rounding to ensure fu is correct
     assert_eq!(game.players[1].hand_fu(&game, false), 102);
@@ -1014,7 +1077,7 @@ fn test_fu_2()
     winning_player.last_picked_tile = Tile { suit : Suit::Honor, value : SuitVal::East, red : false };
     winning_player.winning_wait = Some(WaitType::Tanki);
 
-    winning_player.ron_or_tsumo = (WinningMethod::Tsumo, 0);
+    winning_player.ron_or_tsumo = WinningMethod::Tsumo;
 
 
     // test without rounding to ensure fu is correct
@@ -1082,7 +1145,7 @@ fn test_fu_open_pinfu()
     winning_player.last_picked_tile = Tile::sou_tile(3);
     winning_player.winning_wait = Some(WaitType::Ryanmen);
 
-    winning_player.ron_or_tsumo = (WinningMethod::Ron, 3);
+    winning_player.ron_or_tsumo = WinningMethod::Ron(3);
 
 
     // hand gets 0 fu, but hands with 0 fu are rounded up to 30
@@ -1101,7 +1164,7 @@ fn test_fu_open_pinfu()
             call_type : CallTypes::Tsumo
     };
     game.players[0].last_picked_tile = Tile::sou_tile(6);
-    game.players[0].ron_or_tsumo = (WinningMethod::Tsumo, 0);
+    game.players[0].ron_or_tsumo = WinningMethod::Tsumo;
 
 //    TODO Detect pinfu properly, so as to correctly give no
 //    assert_eq!(game.players[0].hand_fu(&game, false), 30);
@@ -1252,7 +1315,7 @@ fn test_callable_tiles()
             hand : vec![
                 Tile::man_tile(2), Tile::man_tile(2),
                 Tile::man_tile(3), Tile::man_tile(3),
-                Tile::man_tile(6), 
+                Tile::man_tile(6),
                 Tile::man_tile(7), // Tile::man_tile(7), if this tile is added, then the test changes below
                 Tile::man_tile(8),
 

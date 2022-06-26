@@ -291,3 +291,17 @@ enum YakuType {
     Daisharin,
 }
 
+struct HandScore {
+    point_change : i32,
+
+    basic_points : usize,
+    fu : usize,
+
+    hand_yaku : Vec<YakuType>,
+}
+
+
+pub fn score_points(game : &mut Game) -> ()
+{
+//    let mut player_1 = (game).players;
+}
