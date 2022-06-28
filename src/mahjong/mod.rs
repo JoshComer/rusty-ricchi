@@ -472,103 +472,7 @@ impl Game {
     }
 
 
-    fn score_points(&mut self, winning_player_idx : Option<usize>) -> ()
-    {
-        if let Some(winning_player_idx) = winning_player_idx
-        {
-            if self.players[winning_player_idx].is_human
-            {
-                tui_output::output_player_win_or_lose(&self.players[winning_player_idx], self.human_is_playing);
-            }
-            else {
-                tui_output::output_player_win_or_lose(&self.players[winning_player_idx], self.human_is_playing);
-            }
-        }
-
-        const EXHAUSTIVE_DRAW_POINTS : i32 = 3000;
-        match winning_player_idx
-        {
-            None => {
-                let num_tenpai_players = self.players.iter().filter(|player| player.tenpai).count();
-
-                // no one or everyone is in tenpai
-                if num_tenpai_players == 0 || num_tenpai_players == 4
-                {  return;  }
-
-                for player in &mut self.players {
-                    if player.tenpai
-                    {
-                        player.points += utils::round_up_to_100(EXHAUSTIVE_DRAW_POINTS / (num_tenpai_players as i32));
-                    }
-                    else
-                    {
-                        player.points -= utils::round_up_to_100(EXHAUSTIVE_DRAW_POINTS / ((NUM_PLAYERS - num_tenpai_players) as i32));
-                    }
-                }
-
-                // rotate seats if dealer wasn't in tenpai and someone else was
-                if ! self.players.iter().find(|player| player.seat_wind == SuitVal::East).unwrap().tenpai
-                {
-                    for player in &mut self.players { player.rotate_wind(); }
-                }
-            }
-            Some(winning_player_idx) => {
-
-                let basic_points = self.players[winning_player_idx].score_hand_basic_points(self);
-
-                let winners_seat_wind : SuitVal = self.players[winning_player_idx].seat_wind;
-
-                let winning_player = &mut self.players[winning_player_idx];
-                let other_players = self.players.iter().filter(|player| player.seat_wind != self.players[winning_player_idx].seat_wind);
-
-                match self.players[winning_player_idx].ron_or_tsumo {
-                    WinningMethod::Ron(victim_index) =>  // "victim" is the player who got ron called on them
-                        if self.players[winning_player_idx].seat_wind == SuitVal::East
-                        {
-                            self.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
-                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 6) as i32);
-                        }
-                        else
-                        {
-                            self.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
-                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
-                        },
-                    WinningMethod::Tsumo =>
-                        if self.players[winning_player_idx].seat_wind == SuitVal::East
-                        {
-                            for player in &mut self.players{
-                                if player.seat_wind != winners_seat_wind
-                                {
-                                    player.points -= round_up_to_100((basic_points * 2) as i32);
-                                }
-                            }
-
-                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
-                        }
-                        else
-                        {
-                            for player in &mut self.players {
-                                if player.seat_wind == SuitVal::East
-                                {
-                                    player.points -= round_up_to_100((basic_points * 2) as i32);
-                                }
-                                else if player.seat_wind != winners_seat_wind
-                                {
-                                    player.points  -= round_up_to_100(basic_points as i32);
-
-                                }
-
-                            }
-
-                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
-                            self.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
-
-                        },
-                    _ => panic!("Player won, but did not have ron or tsumo set"),
-                }
-            }
-        }
-    }
+    
 
     // fisher yates shuffle of the game tiles
     fn shuffle(&mut self) -> ()
@@ -639,7 +543,7 @@ impl Game {
                     let next_tile = self.draw_next_tile();
                     if next_tile.is_none()
                     {
-                        self.score_points(None);
+                        scoring::score_points(self, None);
                         return RepeatHand::RotateWinds;
                     }
 
@@ -658,7 +562,7 @@ impl Game {
                 else // None
                 {
                     // A player always discards, unless they chose to win
-                        self.score_points(Some(self.curr_player_idx));
+                        scoring::score_points(self, Some(self.curr_player_idx));
                         if self.players[self.curr_player_idx].seat_wind == self.round_wind
                         {
                             return RepeatHand::DealerWon;
@@ -678,7 +582,7 @@ impl Game {
                     NextPlayerOrWin::Winner(winner_index) => {
                         self.players[winner_index].ron_or_tsumo = WinningMethod::Ron(self.curr_player_idx);
                         self.curr_player_idx = winner_index;
-                        self.score_points(Some(winner_index));
+                        scoring::score_points(self, Some(winner_index));
 
                         let temp_wind = self.round_wind;
                         if self.current_player().seat_wind == temp_wind
@@ -801,7 +705,7 @@ fn test_scoring()
     let mut game : Game = Game::default();
 
     game.players[0].ron_or_tsumo = WinningMethod::Ron(1);
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
 
 
@@ -841,7 +745,7 @@ fn test_kokushi_musou()
     assert_eq!(scoring::yakuman_chiihou(&game.players[0], &game), 1);
     assert_eq!(scoring::yakuman_daisangen(&game.players[0], &game), 0);
 
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
     // Damn, I wish I could have a hand like this sometime
     assert_eq!(game.players[0].points, 169000);
@@ -889,7 +793,7 @@ fn test_daisangen()
     assert_eq!(yakuman_chiihou(&game.players[0], &game), 0);
     assert_eq!(yakuman_daisangen(&game.players[0], &game), 1);
 
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
     // Damn, I wish I could have a hand like this sometime
     assert_eq!(game.players[0].points, 73000);
@@ -939,7 +843,7 @@ fn test_suuankou()
 
     assert_eq!(yakuman_suuankou(&game.players[0], &game), 2);
 
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
     assert_eq!(game.players[0].points, 25000 + (16000 * 6));
     assert_eq!(game.players[1].points, 25000);
@@ -1017,7 +921,7 @@ fn test_fu_1()
     assert_eq!(game.players[1].hand_fu(&game, false), 102);
     //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
     // TODO: Check for han value in hand
-    game.score_points(Some(1));
+    scoring::score_points(&mut game, Some(1));
 
 
 }
@@ -1084,7 +988,7 @@ fn test_fu_2()
     assert_eq!(game.players[0].hand_fu(&game, false), 108);
     //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
     // TODO: Check for han value in hand
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
 
 }
@@ -1171,7 +1075,7 @@ fn test_fu_open_pinfu()
 
     //    assert_eq!(winning_player.hand_yaku_in_han(), 1);
     // TODO: Check for han value in hand
-    game.score_points(Some(0));
+    scoring::score_points(&mut game, Some(0));
 
 
 }

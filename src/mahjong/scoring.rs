@@ -292,16 +292,109 @@ enum YakuType {
 }
 
 struct HandScore {
-    point_change : i32,
-
     basic_points : usize,
     fu : usize,
+
+    calculated_point_dif : i32,
 
     hand_yaku : Vec<YakuType>,
 }
 
 
-pub fn score_points(game : &mut Game) -> ()
-{
-//    let mut player_1 = (game).players;
-}
+pub fn score_points(game : &mut Game, winning_player_idx : Option<usize>) -> ()
+    {
+        if let Some(winning_player_idx) = winning_player_idx
+        {
+            if game.players[winning_player_idx].is_human
+            {
+                tui_output::output_player_win_or_lose(&game.players[winning_player_idx], game.human_is_playing);
+            }
+            else {
+                tui_output::output_player_win_or_lose(&game.players[winning_player_idx], game.human_is_playing);
+            }
+        }
+
+        const EXHAUSTIVE_DRAW_POINTS : i32 = 3000;
+        match winning_player_idx
+        {
+            None => {
+                let num_tenpai_players = game.players.iter().filter(|player| player.tenpai).count();
+
+                // no one or everyone is in tenpai
+                if num_tenpai_players == 0 || num_tenpai_players == 4
+                {  return;  }
+
+                for player in &mut game.players {
+                    if player.tenpai
+                    {
+                        player.points += utils::round_up_to_100(EXHAUSTIVE_DRAW_POINTS / (num_tenpai_players as i32));
+                    }
+                    else
+                    {
+                        player.points -= utils::round_up_to_100(EXHAUSTIVE_DRAW_POINTS / ((NUM_PLAYERS - num_tenpai_players) as i32));
+                    }
+                }
+
+                // rotate seats if dealer wasn't in tenpai and someone else was
+                if ! game.players.iter().find(|player| player.seat_wind == SuitVal::East).unwrap().tenpai
+                {
+                    for player in &mut game.players { player.rotate_wind(); }
+                }
+            }
+            Some(winning_player_idx) => {
+
+                let basic_points = game.players[winning_player_idx].score_hand_basic_points(game);
+
+                let winners_seat_wind : SuitVal = game.players[winning_player_idx].seat_wind;
+
+                let winning_player = &mut game.players[winning_player_idx];
+                let other_players = game.players.iter().filter(|player| player.seat_wind != game.players[winning_player_idx].seat_wind);
+
+                match game.players[winning_player_idx].ron_or_tsumo {
+                    WinningMethod::Ron(victim_index) =>  // "victim" is the player who got ron called on them
+                        if game.players[winning_player_idx].seat_wind == SuitVal::East
+                        {
+                            game.players[victim_index].points -= round_up_to_100((basic_points * 6) as i32);
+                            game.players[winning_player_idx].points += round_up_to_100((basic_points * 6) as i32);
+                        }
+                        else
+                        {
+                            game.players[victim_index].points -= round_up_to_100((basic_points * 4) as i32);
+                            game.players[winning_player_idx].points += round_up_to_100((basic_points * 4) as i32);
+                        },
+                    WinningMethod::Tsumo =>
+                        if game.players[winning_player_idx].seat_wind == SuitVal::East
+                        {
+                            for player in &mut game.players{
+                                if player.seat_wind != winners_seat_wind
+                                {
+                                    player.points -= round_up_to_100((basic_points * 2) as i32);
+                                }
+                            }
+
+                            game.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * (NUM_PLAYERS -1) as i32;
+                        }
+                        else
+                        {
+                            for player in &mut game.players {
+                                if player.seat_wind == SuitVal::East
+                                {
+                                    player.points -= round_up_to_100((basic_points * 2) as i32);
+                                }
+                                else if player.seat_wind != winners_seat_wind
+                                {
+                                    player.points  -= round_up_to_100(basic_points as i32);
+
+                                }
+
+                            }
+
+                            game.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32);
+                            game.players[winning_player_idx].points += round_up_to_100((basic_points * 2) as i32) * 2;
+
+                        },
+                    _ => panic!("Player won, but did not have ron or tsumo set"),
+                }
+            }
+        }
+    }
